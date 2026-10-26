@@ -18,9 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var accessLost = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if let other = otherInstance() {
-            // Two copies would fight over every window.
-            Log.warn("Pop Mac is already running (pid \(other.processIdentifier)); quitting")
+        if !takeOverFromOtherCopies() {
+            // Two copies of the same build would fight over every window.
             NSApp.terminate(nil)
             return
         }
@@ -48,11 +47,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Another running copy of Pop Mac, for example one from Homebrew and one built locally.
-    private func otherInstance() -> NSRunningApplication? {
-        guard let id = Bundle.main.bundleIdentifier else { return nil }
-        let me = ProcessInfo.processInfo.processIdentifier
-        return NSRunningApplication.runningApplications(withBundleIdentifier: id).first { $0.processIdentifier != me }
+    /// Bundle ids of every Pop Mac build: the release and a renamed "Pop Mac Prod" copy.
+    private static let family = ["dev.krystof.popmac", "dev.krystof.popmac.prod"]
+
+    /// Makes sure that only one Pop Mac manages windows.
+    ///
+    /// Another copy of this same build is already doing that, so this one quits.
+    /// Another build (for example "Pop Mac Prod" beside a development build) is
+    /// quit instead, so that starting a build switches to it.
+    /// Returns false if this copy should quit.
+    private func takeOverFromOtherCopies() -> Bool {
+        guard let me = Bundle.main.bundleIdentifier else { return true }
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        for id in Self.family {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: id) where app.processIdentifier != myPID {
+                if id == me {
+                    Log.warn("Pop Mac is already running (pid \(app.processIdentifier)); quitting")
+                    return false
+                }
+                Log.info("quitting \(app.localizedName ?? id), so that this copy manages the windows")
+                app.terminate()
+            }
+        }
+        return true
     }
 
     private func checkAccess() {

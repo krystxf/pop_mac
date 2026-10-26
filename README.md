@@ -200,6 +200,10 @@ swift scripts/make-icon.swift   # redraw Resources/AppIcon.icns
 POP_MAC_SNAPSHOT_DIR=/tmp/shots build/PopMac.app/Contents/MacOS/PopMac   # save images of the settings pages
 ```
 
+`make prod` installs the Homebrew release as **Pop Mac Prod** in `~/Applications`, next to your development build.
+Only one copy can manage windows, so starting a build quits the other one. (Release 0.1.0 predates this, so quit
+the development build before you start Pop Mac Prod 0.1.0.) Pop Mac Prod needs its own Accessibility access.
+
 CI runs on every push and pull request. It checks the formatting with SwiftFormat, lints the
 shell script and the workflow, builds with warnings as errors, runs the tests, and builds the app
 bundle. The bundle is attached to each run as the `PopMac` artifact.

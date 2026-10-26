@@ -1,4 +1,4 @@
-.PHONY: build test lint format app run install clean
+.PHONY: build test lint format app run install prod clean
 
 build:
 	swift build
@@ -23,6 +23,9 @@ install: app
 	mkdir -p ~/Applications
 	cp -R build/PopMac.app ~/Applications/
 	@echo "Installed to ~/Applications/PopMac.app"
+
+prod:
+	./scripts/install-prod.sh
 
 clean:
 	rm -rf .build build
