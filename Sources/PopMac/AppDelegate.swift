@@ -88,16 +88,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateIcon() {
-        let name = if manager == nil || accessLost || configError != nil {
-            "exclamationmark.triangle"
-        } else if manager?.autoTiler != nil {
-            "rectangle.split.2x1.fill"
+        let image: NSImage? = if manager == nil || accessLost || configError != nil {
+            NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Pop Mac needs attention")
         } else {
-            "rectangle.split.2x1"
+            Self.menuBarIcon(tiling: manager?.autoTiler != nil)
         }
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: "Pop Mac")
         image?.isTemplate = true
         statusItem.button?.image = image
+    }
+
+    /// The app icon's tile layout, drawn for the menu bar. Outlined tiles mean tiling is off.
+    private static func menuBarIcon(tiling: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 16), flipped: false) { _ in
+            let line: CGFloat = 1.3
+            let area = NSRect(x: 1, y: 1.5, width: 16, height: 13)
+            let gap: CGFloat = 1.8
+            let half = (area.width - gap) / 2
+            let tiles = [
+                NSRect(x: area.minX, y: area.minY, width: half, height: area.height),
+                NSRect(x: area.minX + half + gap, y: area.minY + (area.height + gap) / 2, width: half, height: (area.height - gap) / 2),
+                NSRect(x: area.minX + half + gap, y: area.minY, width: half, height: (area.height - gap) / 2),
+            ]
+            NSColor.black.set()
+            for tile in tiles {
+                if tiling {
+                    NSBezierPath(roundedRect: tile, xRadius: 1.5, yRadius: 1.5).fill()
+                } else {
+                    let path = NSBezierPath(roundedRect: tile.insetBy(dx: line / 2, dy: line / 2), xRadius: 1.2, yRadius: 1.2)
+                    path.lineWidth = line
+                    path.stroke()
+                }
+            }
+            return true
+        }
+        image.accessibilityDescription = tiling ? "Pop Mac, tiling on" : "Pop Mac, tiling off"
+        return image
     }
 
     // MARK: - Menu
