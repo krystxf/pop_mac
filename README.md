@@ -36,13 +36,16 @@ open ~/Applications/PopMac.app
 On the first start, macOS asks for Accessibility access.
 Grant it in System Settings > Privacy & Security > Accessibility. Pop Mac starts when access is granted.
 
-The default build uses an ad-hoc signature, which changes on every build.
-After a rebuild, macOS asks for Accessibility access again.
-To keep access, sign with your own certificate:
+The build signs the app with the first "Apple Development" certificate in your keychain.
+A stable signature keeps the Accessibility access across rebuilds.
+To pick another certificate, set `SIGN_IDENTITY` to its name or SHA-1 hash:
 
 ```sh
-SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" make install
+SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" make install
 ```
+
+Without a certificate, the build signs ad-hoc. The ad-hoc signature changes on every build,
+so macOS asks for Accessibility access again after each rebuild.
 
 Use **Launch at Login** in the menu bar menu to start Pop Mac automatically.
 

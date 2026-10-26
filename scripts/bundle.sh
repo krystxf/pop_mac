@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Builds PopMac.app in ./build.
 #
-# Set SIGN_IDENTITY to a certificate name (see `security find-identity -p codesigning`)
-# to keep the Accessibility permission across rebuilds. The default ad-hoc
-# signature changes on every build, so macOS asks for the permission again.
+# A stable signature keeps the Accessibility permission across rebuilds.
+# The script uses SIGN_IDENTITY, or else the first "Apple Development"
+# certificate in the keychain. Without one it signs ad-hoc, and macOS asks
+# for the permission again after every build.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -18,5 +19,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/PopMac"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 
-codesign --force --deep --options runtime --sign "${SIGN_IDENTITY:--}" "$APP"
+IDENTITY="${SIGN_IDENTITY:-$(security find-identity -p codesigning -v 2>/dev/null | awk '/"Apple Development/ { print $2; exit }')}"
+codesign --force --deep --options runtime --sign "${IDENTITY:--}" "$APP"
+echo "Signed with: ${IDENTITY:-ad-hoc}"
 echo "Built $APP"
