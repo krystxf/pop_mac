@@ -158,6 +158,23 @@ public final class Fork {
         return nil
     }
 
+    /// Moves the split so that both branches get at least their minimum length.
+    ///
+    /// The fork keeps its ratio, so the split returns to it when space frees up.
+    /// If the minimums cannot both fit, the space is shared in proportion to them.
+    private func constrainedSplit(_ split: Double, total: Double, gapHalf: Double, right: Node) -> Double {
+        let minLeft = forest.minimumLength(of: left, horizontal: isHorizontal)
+        let minRight = forest.minimumLength(of: right, horizontal: isHorizontal)
+        guard minLeft > 0 || minRight > 0 else { return split }
+
+        let lower = minLeft + gapHalf
+        let upper = total - minRight - gapHalf
+        if lower <= upper {
+            return min(max(split, lower), upper)
+        }
+        return (total * minLeft / (minLeft + minRight)).rounded()
+    }
+
     /// Calculates the future arrangement of windows in this fork.
     func measure(_ forest: Forest, area: Rect) {
         var ratio: Double?
@@ -190,7 +207,7 @@ public final class Fork {
 
         let total = length
         let gapHalf = forest.gapInner / 2
-        let split = lengthLeft.rounded()
+        let split = constrainedSplit(lengthLeft.rounded(), total: total, gapHalf: gapHalf, right: right)
 
         var region = self.area
         if isHorizontal {

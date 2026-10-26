@@ -124,6 +124,16 @@ public struct Rect: Equatable, Hashable, Codable, CustomStringConvertible {
     public var description: String { "Rect(\(x), \(y), \(width), \(height))" }
 }
 
+public struct Size: Equatable, Hashable, Codable {
+    public var width: Double
+    public var height: Double
+
+    public init(width: Double, height: Double) {
+        self.width = width
+        self.height = height
+    }
+}
+
 public struct Point: Equatable, Codable {
     public var x: Double
     public var y: Double

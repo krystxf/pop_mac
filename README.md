@@ -162,7 +162,7 @@ macOS restricts what a window manager can do. These parts differ from Pop Shell:
 - **Spaces:** Pop Mac cannot create Spaces. To move a window to another Space, it drags the window's title bar and presses ⌃← or ⌃→. This depends on the Mission Control shortcuts, and some apps may not respond to it.
 - **Native tabs:** each macOS tab is a window. The selected tab takes the tile of the tab it replaced.
 - **Snap back:** a tiled window that something other than a mouse drag moves returns to its tile.
-- **Minimum sizes:** Some windows refuse to shrink below a minimum size. They can overlap their neighbors.
+- **Minimum sizes:** macOS does not tell other apps a window's minimum size, so Pop Mac learns it the first time a window refuses a smaller tile. Its neighbors then make room. If the minimums on a display add up to more than it has, windows still overlap.
 - **Animations:** windows move without animation.
 - Pop Mac learns about windows on other Spaces when you first visit those Spaces.
 

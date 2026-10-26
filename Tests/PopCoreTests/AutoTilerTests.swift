@@ -9,6 +9,7 @@ final class FakeEnv: TilingEnvironment {
     var rects: [WindowID: Rect] = [:]
     var keys: [WindowID: WorkspaceKey] = [:]
     var focusHistory: [WindowID] = []
+    var minimums: [WindowID: Size] = [:]
 
     func workArea(_ monitor: MonitorID) -> Rect? { screens[monitor] }
     func windowRect(_ window: WindowID) -> Rect? { rects[window] }
@@ -21,6 +22,7 @@ final class FakeEnv: TilingEnvironment {
     func windows(at point: Point, key: WorkspaceKey) -> [WindowID] {
         rects.filter { $0.value.contains(point) && keys[$0.key] == key }.map(\.key)
     }
+    func minimumSize(_ window: WindowID) -> Size? { minimums[window] }
     func applyLayout(_ moves: [(WindowID, Rect)]) {
         for (w, r) in moves { rects[w] = r }
     }
@@ -224,6 +226,36 @@ struct AutoTilerTests {
         tiler.autoTile(2, ignoreFocus: true)
         #expect(tiler.forest.toplevels.count == 1)
         #expect(tiler.forest.toplevel(of: tiler.attached[1]!) === tiler.forest.toplevel(of: tiler.attached[2]!))
+    }
+
+    @Test func splitRespectsMinimumWidth() {
+        env.minimums[1] = Size(width: 1000, height: 0)
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        #expect(env.rects[1] == Rect(0, 0, 1000, 1000))
+        #expect(env.rects[2] == Rect(1000, 0, 600, 1000))
+    }
+
+    @Test func minimumsAddUpAlongTheAxis() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        env.open(tiler, 3)
+        // Windows 2 and 3 share the right column, one above the other.
+        env.minimums[2] = Size(width: 900, height: 0)
+        env.minimums[3] = Size(width: 0, height: 700)
+        tiler.reflow(1)
+        #expect(env.rects[1]!.width == 700)
+        #expect(env.rects[2]!.width == 900)
+        #expect(env.rects[3]!.height == 700)
+        #expect(env.rects[2]!.height == 300)
+    }
+
+    @Test func impossibleMinimumsShareTheSpace() {
+        env.minimums[1] = Size(width: 1200, height: 0)
+        env.minimums[2] = Size(width: 1200, height: 0)
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        #expect(env.rects[1]!.width == 800)
     }
 
     @Test func replaceKeepsTheTile() {

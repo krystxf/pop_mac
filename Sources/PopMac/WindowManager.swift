@@ -36,7 +36,10 @@ final class WindowManager {
     private var signalSource: DispatchSourceSignal?
     private var previewWork: DispatchWorkItem?
     var tileMode: TileMode?
-    private var pendingVerify: [WindowID: Rect] = [:]
+    /// Windows to check after a move: the frame they should have, and whether it was set twice.
+    private var pendingVerify: [WindowID: (target: Rect, retried: Bool)] = [:]
+    /// The smallest size each window accepted, learned when it refused a smaller tile.
+    private var minimumSizes: [WindowID: Size] = [:]
     /// When Pop Mac last moved each window, so the window's own move events can be ignored.
     private var lastSet: [WindowID: Date] = [:]
     /// The tile that each window last received.
@@ -428,6 +431,7 @@ final class WindowManager {
         }
         lastSet.removeValue(forKey: id)
         lastApplied.removeValue(forKey: id)
+        minimumSizes.removeValue(forKey: id)
         floating.remove(id)
         forceTile.remove(id)
         maximized.removeValue(forKey: id)
@@ -767,6 +771,10 @@ extension WindowManager: @preconcurrency TilingEnvironment {
     var gapOuter: Double { settings.gapOuter }
     var smartGaps: Bool { settings.smartGaps }
 
+    func minimumSize(_ window: WindowID) -> Size? {
+        minimumSizes[window]
+    }
+
     func workArea(_ monitor: MonitorID) -> Rect? {
         display(monitor)?.workArea
     }
@@ -815,7 +823,7 @@ extension WindowManager: @preconcurrency TilingEnvironment {
             if let frame = window.frame, frame.approximatelyEquals(target, tolerance: 1) { continue }
             lastSet[id] = Date()
             window.setFrame(target)
-            pendingVerify[id] = target
+            pendingVerify[id] = (target, false)
         }
         if tileMode != nil { refreshTileOverlay() }
         scheduleVerify()
@@ -824,27 +832,66 @@ extension WindowManager: @preconcurrency TilingEnvironment {
     /// Checks moved windows again after a moment, and fixes the ones that missed.
     ///
     /// macOS clamps a window to its old display while it crosses to another one,
-    /// and some apps apply a new frame asynchronously.
+    /// and some apps apply a new frame asynchronously, so a miss is retried once.
+    /// A window that is still larger after the retry refuses that size: its size
+    /// becomes its learned minimum, and its tree is tiled again around it.
     private func scheduleVerify() {
         guard !pendingVerify.isEmpty, !verifyScheduled else { return }
         verifyScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.verifyScheduled = false
-                let pending = self.pendingVerify
-                self.pendingVerify.removeAll()
-                for (id, target) in pending {
-                    // Skip windows that left the tree or got a new tile meanwhile.
-                    guard let window = self.windows[id], self.maximized[id] == nil,
-                          self.autoTiler?.isAttached(id) == true, self.lastApplied[id] == target,
-                          let frame = window.frame, !frame.approximatelyEquals(target, tolerance: 2)
-                    else { continue }
-                    Log.debug("window \(id) missed its frame \(target), got \(frame); retrying")
-                    self.lastSet[id] = Date()
-                    window.setFrame(target)
-                }
+            MainActor.assumeIsolated { self?.verify() }
+        }
+    }
+
+    private func verify() {
+        verifyScheduled = false
+        let pending = pendingVerify
+        pendingVerify.removeAll()
+        var retile = Set<WindowID>()
+
+        for (id, entry) in pending {
+            let target = entry.target
+            // Skip windows that left the tree or got a new tile meanwhile.
+            guard let window = windows[id], maximized[id] == nil,
+                  autoTiler?.isAttached(id) == true, lastApplied[id] == target,
+                  let frame = window.frame
+            else { continue }
+
+            if frame.approximatelyEquals(target, tolerance: 2) {
+                forgetMinimum(id, accepted: frame)
+            } else if !entry.retried {
+                Log.debug("window \(id) missed its frame \(target), got \(frame); retrying")
+                lastSet[id] = Date()
+                window.setFrame(target)
+                pendingVerify[id] = (target, true)
+            } else if learnMinimum(id, target: target, frame: frame) {
+                retile.insert(id)
             }
         }
+
+        scheduleVerify()
+        for id in retile {
+            autoTiler?.reflow(id)
+        }
+    }
+
+    /// Records the size a window kept instead of a smaller target. Returns true if it is new.
+    private func learnMinimum(_ id: WindowID, target: Rect, frame: Rect) -> Bool {
+        let old = minimumSizes[id] ?? Size(width: 0, height: 0)
+        var size = old
+        if frame.width > target.width + 2 { size.width = max(size.width, frame.width) }
+        if frame.height > target.height + 2 { size.height = max(size.height, frame.height) }
+        guard size != old else { return false }
+        Log.debug("window \(id) needs at least \(size.width) x \(size.height)")
+        minimumSizes[id] = size
+        return true
+    }
+
+    /// Lowers a learned minimum when the window accepted a smaller size after all.
+    private func forgetMinimum(_ id: WindowID, accepted frame: Rect) {
+        guard var size = minimumSizes[id] else { return }
+        size.width = min(size.width, frame.width)
+        size.height = min(size.height, frame.height)
+        minimumSizes[id] = size
     }
 }

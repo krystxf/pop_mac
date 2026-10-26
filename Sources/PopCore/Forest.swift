@@ -40,6 +40,9 @@ public final class Forest {
     /// Called when a window is detached from the tree.
     public var onDetach: ((WindowID) -> Void)?
 
+    /// The smallest size that a window accepts, if known.
+    public var minimumSize: ((WindowID) -> Size?)?
+
     private var nextID = 1
 
     public init() {}
@@ -170,6 +173,26 @@ public final class Forest {
     }
 
     // MARK: - Measurement
+
+    /// The smallest length that a node needs along one axis.
+    ///
+    /// Forks along the same axis add up their branches and the gap between them.
+    /// Forks across the axis need as much as their larger branch.
+    func minimumLength(of node: Node, horizontal: Bool) -> Double {
+        switch node {
+        case let .window(window):
+            guard let size = minimumSize?(window) else { return 0 }
+            return horizontal ? size.width : size.height
+        case let .fork(fork):
+            let left = minimumLength(of: fork.left, horizontal: horizontal)
+            guard let right = fork.right else { return left }
+            let rightLength = minimumLength(of: right, horizontal: horizontal)
+            if fork.isHorizontal == horizontal {
+                return left + rightLength + (left > 0 || rightLength > 0 ? gapInner : 0)
+            }
+            return max(left, rightLength)
+        }
+    }
 
     public func measure(_ fork: Fork, area: Rect) {
         fork.measure(self, area: area)

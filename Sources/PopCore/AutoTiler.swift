@@ -18,6 +18,8 @@ public protocol TilingEnvironment: AnyObject {
 
     /// Moves windows to their calculated positions.
     func applyLayout(_ moves: [(WindowID, Rect)])
+    /// The smallest size that a window accepts, if known.
+    func minimumSize(_ window: WindowID) -> Size?
 }
 
 /// Where a window should go when it is moved with the keyboard.
@@ -34,6 +36,7 @@ public final class AutoTiler {
     public init(env: TilingEnvironment, gapInner: Double) {
         self.env = env
         forest.gapInner = gapInner
+        forest.minimumSize = { [unowned env] in env.minimumSize($0) }
     }
 
     public var attached: [WindowID: Fork] { forest.attached }
