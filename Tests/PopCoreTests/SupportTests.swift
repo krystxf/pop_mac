@@ -31,6 +31,9 @@ import Testing
 
     @Test func floatRulesMatch() {
         #expect(!FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "Calculator", userRules: []))
+        // Keka floats by default, and a disabled user rule makes it tile.
+        #expect(FloatRules.windowShallFloat(appName: "Keka", bundleID: "com.aone.keka", title: "Keka", userRules: []))
+        #expect(!FloatRules.windowShallFloat(appName: "Keka", bundleID: "com.aone.keka", title: "Keka", userRules: [FloatRule(app: "Keka", disabled: true)]))
         let byApp = [FloatRule(app: "Terminal")]
         #expect(FloatRules.windowShallFloat(appName: "Terminal", bundleID: "com.apple.Terminal", title: "zsh", userRules: byApp))
         let byBundle = [FloatRule(app: "^com\\.apple\\.calculator$")]

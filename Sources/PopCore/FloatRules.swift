@@ -43,9 +43,13 @@ public struct FloatRule: Codable, Equatable {
 }
 
 public enum FloatRules {
-    /// Built-in float rules. Empty: every standard window tiles, unless the user adds a rule
-    /// or floats a window with toggle-floating.
-    public static let defaults: [FloatRule] = []
+    /// Built-in float rules, checked after the user's rules.
+    ///
+    /// Only apps whose main window cannot tile belong here.
+    public static let defaults: [FloatRule] = [
+        // Keka's window has a fixed size.
+        FloatRule(app: "^com\\.aone\\.keka$"),
+    ]
 
     /// Returns true if the window should float.
     ///

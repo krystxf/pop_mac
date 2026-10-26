@@ -131,6 +131,7 @@ The menu bar item **Edit Config File…** opens it. Missing keys use their defau
   - `"disabled": true` makes matching windows tile. Put it before a broader rule to make an exception to it.
   - ⌃⌥G on a window that a rule floats makes it tile anyway, until Pop Mac restarts.
   - Pop Mac applies rule changes as soon as you save the file.
+  - Built-in rules float Keka, whose window has a fixed size. They come after your rules, so `{ "app": "Keka", "disabled": true }` makes it tile.
 - `overlayColor` is the highlight color for tile mode and drop previews: `#RRGGBB`, or `accent` for the system accent color.
   The menu bar item **Highlight Color** sets it too, with presets and a color picker.
 - `mouseCursorFocusLocation` is one of `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
