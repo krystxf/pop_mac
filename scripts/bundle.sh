@@ -10,14 +10,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG="${CONFIG:-release}"
 APP="build/PopMac.app"
+# Extra flags for swift build, for example --disable-sandbox inside Homebrew.
+read -r -a FLAGS <<< "${SWIFT_BUILD_FLAGS:-}"
 
-swift build -c "$CONFIG"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/PopMac"
+swift build ${FLAGS[@]+"${FLAGS[@]}"} -c "$CONFIG" --product PopMac
+BIN="$(swift build ${FLAGS[@]+"${FLAGS[@]}"} -c "$CONFIG" --show-bin-path)/PopMac"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/PopMac"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 IDENTITY="${SIGN_IDENTITY:-$(security find-identity -p codesigning -v 2>/dev/null | awk '/"Apple Development/ { print $2; exit }')}"
 codesign --force --deep --options runtime --sign "${IDENTITY:--}" "$APP"
