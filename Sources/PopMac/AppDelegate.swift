@@ -83,24 +83,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(toggle("Snap Floating Windows to Grid", s.snapToGrid, #selector(toggleSnap)))
         menu.addItem(.separator())
 
-        let exceptions = NSMenuItem(title: "Floating Window Exceptions", action: nil, keyEquivalent: "")
-        let sub = NSMenu()
-        sub.addItem(item("Float the Focused App", #selector(addAppException)))
-        sub.addItem(item("Float the Focused Window", #selector(addWindowException)))
-        sub.addItem(.separator())
-        if s.floatRules.isEmpty {
-            sub.addItem(withTitle: "No custom exceptions", action: nil, keyEquivalent: "")
-        }
-        for (index, rule) in s.floatRules.enumerated() {
-            let title = [rule.app, rule.title.map { "“\($0)”" }].compactMap { $0 }.joined(separator: " ")
-            let entry = NSMenuItem(title: "Remove \(title)", action: #selector(removeException(_:)), keyEquivalent: "")
-            entry.target = self
-            entry.tag = index
-            sub.addItem(entry)
-        }
-        exceptions.submenu = sub
-        menu.addItem(exceptions)
-        menu.addItem(.separator())
 
         menu.addItem(toggle("Launcher…", false, #selector(openLauncher), hint: .activateLauncher))
         menu.addItem(item("View All Shortcuts…", #selector(showShortcuts)))
@@ -149,18 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleSnap() { manager?.update { $0.snapToGrid.toggle() } }
     @objc private func setInnerGap(_ sender: NSMenuItem) { manager?.update { $0.gapInner = Double(sender.tag) } }
     @objc private func setOuterGap(_ sender: NSMenuItem) { manager?.update { $0.gapOuter = Double(sender.tag) } }
-    @objc private func addAppException() { manager?.addAppException() }
-    @objc private func addWindowException() { manager?.addWindowException() }
     @objc private func openLauncher() { manager?.launcher.open() }
-
-    @objc private func removeException(_ sender: NSMenuItem) {
-        manager?.update { settings in
-            if settings.floatRules.indices.contains(sender.tag) {
-                settings.floatRules.remove(at: sender.tag)
-            }
-        }
-        manager?.scanVisibleWindows()
-    }
 
     @objc private func showShortcuts() {
         guard let manager else { return }

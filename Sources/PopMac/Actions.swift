@@ -110,15 +110,7 @@ extension WindowManager {
         guard let focused = focusedWindow(), let autoTiler else { return }
         let id = focused.id
 
-        if matchesFloatRule(focused) {
-            if forceTile.contains(id) {
-                forceTile.remove(id)
-                autoTiler.detachWindow(id)
-            } else {
-                forceTile.insert(id)
-                autoTiler.autoTile(id)
-            }
-        } else if floating.contains(id) {
+        if floating.contains(id) {
             floating.remove(id)
             autoTiler.autoTile(id)
         } else if autoTiler.isAttached(id) {
@@ -354,33 +346,5 @@ extension WindowManager {
         guard let mode = tileMode, let autoTiler else { return }
         autoTiler.toggleOrientation(mode.window)
         refreshTileOverlay()
-    }
-
-    // MARK: - Floating exceptions
-
-    /// Adds a float rule for the focused window's application.
-    func addAppException() {
-        guard let focused = focusedWindow() else { return }
-        let rule = FloatRule(app: "^" + NSRegularExpression.escapedPattern(for: focused.bundleID) + "$")
-        addException(rule, for: focused)
-    }
-
-    /// Adds a float rule for the focused window's application and title.
-    func addWindowException() {
-        guard let focused = focusedWindow() else { return }
-        let rule = FloatRule(
-            app: "^" + NSRegularExpression.escapedPattern(for: focused.bundleID) + "$",
-            title: "^" + NSRegularExpression.escapedPattern(for: focused.title) + "$"
-        )
-        addException(rule, for: focused)
-    }
-
-    private func addException(_ rule: FloatRule, for window: ManagedWindow) {
-        guard !settings.floatRules.contains(rule) else { return }
-        forceTile.remove(window.id)
-        update { $0.floatRules.append(rule) }
-        for other in windows.values where autoTiler?.isAttached(other.id) == true && !isTilable(other.id) {
-            autoTiler?.detachWindow(other.id)
-        }
     }
 }

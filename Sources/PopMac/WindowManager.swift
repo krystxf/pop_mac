@@ -16,8 +16,6 @@ final class WindowManager {
 
     /// Windows that the user made float with toggle-floating.
     var floating = Set<WindowID>()
-    /// Windows that match a float rule, but that the user made tile.
-    var forceTile = Set<WindowID>()
     /// Maximized windows, with their frame before maximizing.
     var maximized: [WindowID: Rect] = [:]
     /// The two most recently focused windows: [older, newer].
@@ -146,8 +144,7 @@ final class WindowManager {
             settings.tileByDefault ? autoTileOn() : autoTileOff()
         }
         if let autoTiler, settings.gapInner != old.gapInner || settings.gapOuter != old.gapOuter
-            || settings.smartGaps != old.smartGaps || settings.maxWindowWidth != old.maxWindowWidth
-            || settings.floatRules != old.floatRules {
+            || settings.smartGaps != old.smartGaps || settings.maxWindowWidth != old.maxWindowWidth {
             autoTiler.forest.gapInner = settings.gapInner
             retileAll()
         }
@@ -218,6 +215,7 @@ final class WindowManager {
         guard window.isStandard || (window.role == kAXWindowRole && window.isMinimized) else { return nil }
 
         windows[id] = window
+        AXUIElementSetMessagingTimeout(element, 1.0)
         observer.watch(element)
         Log.debug("registered \(window.appName): \(window.title) (\(id))")
         return window
@@ -396,7 +394,6 @@ final class WindowManager {
         lastSet.removeValue(forKey: id)
         lastApplied.removeValue(forKey: id)
         floating.remove(id)
-        forceTile.remove(id)
         maximized.removeValue(forKey: id)
         prevRect.removeValue(forKey: id)
         minimizedAttachments.removeValue(forKey: id)
@@ -535,15 +532,7 @@ final class WindowManager {
     func isTilable(_ id: WindowID) -> Bool {
         guard let window = windows[id], !floating.contains(id) else { return false }
         guard window.isStandard, !window.isMinimized, !window.isFullscreen, !window.isHidden else { return false }
-        if FloatRules.windowShallFloat(appName: window.appName, bundleID: window.bundleID, title: window.title, userRules: settings.floatRules) {
-            return forceTile.contains(id)
-        }
         return window.isResizable
-    }
-
-    /// True if the window matches a float rule.
-    func matchesFloatRule(_ window: ManagedWindow) -> Bool {
-        FloatRules.windowShallFloat(appName: window.appName, bundleID: window.bundleID, title: window.title, userRules: settings.floatRules)
     }
 
     func autoTileOn() {
@@ -675,11 +664,17 @@ final class WindowManager {
         overlay.show(rect)
     }
 
+    /// True if Pop Mac set the window's frame after `date`.
+    func wasMovedByPopMac(_ id: WindowID, since date: Date) -> Bool {
+        (lastSet[id] ?? .distantPast) > date
+    }
+
     /// Handles the end of a mouse drag or resize of a window.
     func onGrabEnd(_ id: WindowID, original: Rect) {
         overlay.hide()
         guard let window = windows[id], let current = window.frame else { return }
         if current.approximatelyEquals(original, tolerance: 1) { return }
+        Log.debug("grab end \(id): \(original) -> \(current)")
         maximized.removeValue(forKey: id)
 
         guard let autoTiler else {

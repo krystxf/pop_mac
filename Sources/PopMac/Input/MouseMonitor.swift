@@ -3,16 +3,23 @@ import PopCore
 
 /// Detects when the user drags or resizes a window with the mouse.
 ///
-/// macOS has no "grab started" event, so a grab starts at a mouse-down on a
-/// managed window. It ends at the mouse-up, if the window's frame changed.
+/// macOS has no "grab started" event. At a mouse-down, the monitor records
+/// every managed window near the cursor. A resize can start a few points
+/// outside a window, in the gap between tiles. At the mouse-up, each of those
+/// windows whose frame changed was grabbed.
 @MainActor
 final class MouseMonitor {
     private weak var manager: WindowManager?
     private var monitors: [Any] = []
-    private var grab: (id: WindowID, rect: Rect)?
-    private var dragging = false
+    /// Windows near the cursor at mouse-down, with their frames at that time.
+    private var candidates: [WindowID: Rect] = [:]
+    private var downTime = Date.distantPast
+    private var dragged: WindowID?
     private var lastCheck = Date.distantPast
     private var previewTimer: Timer?
+
+    /// How far outside a window a resize grab can start.
+    private static let grabMargin = 12.0
 
     init(manager: WindowManager) {
         self.manager = manager
@@ -32,29 +39,31 @@ final class MouseMonitor {
     }
 
     private func mouseDown() {
-        grab = nil
-        dragging = false
-        guard !SpaceMover.isMoving, let manager, let id = windowUnderCursor(), let window = manager.windows[id], let rect = window.frame else { return }
-        grab = (id, rect)
+        dragged = nil
+        downTime = Date()
+        candidates = SpaceMover.isMoving ? [:] : windowsNearCursor()
     }
 
+    /// Starts the drop preview once one of the candidates moves without a size change.
     private func mouseDragged() {
-        guard let grab, !dragging, Date().timeIntervalSince(lastCheck) > 0.1 else { return }
+        guard dragged == nil, !candidates.isEmpty, Date().timeIntervalSince(lastCheck) > 0.1, let manager else { return }
         lastCheck = Date()
 
-        guard let manager, let frame = manager.windows[grab.id]?.frame else { return }
-        let moved = abs(frame.x - grab.rect.x) > 1 || abs(frame.y - grab.rect.y) > 1
-        let resized = abs(frame.width - grab.rect.width) > 1 || abs(frame.height - grab.rect.height) > 1
+        for (id, rect) in candidates {
+            guard let frame = manager.windows[id]?.frame else { continue }
+            let moved = abs(frame.x - rect.x) > 1 || abs(frame.y - rect.y) > 1
+            let resized = abs(frame.width - rect.width) > 1 || abs(frame.height - rect.height) > 1
+            guard moved && !resized else { continue }
 
-        if moved && !resized {
-            dragging = true
+            dragged = id
             // Show where the window will land, like Pop Shell does after 200 ms.
             previewTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, let grab = self.grab else { return }
-                    self.manager?.dragPreview(grab.id)
+                    guard let self, let dragged = self.dragged else { return }
+                    self.manager?.dragPreview(dragged)
                 }
             }
+            return
         }
     }
 
@@ -63,34 +72,60 @@ final class MouseMonitor {
         previewTimer = nil
         manager?.overlay.hide()
 
-        guard let grab else { return }
-        self.grab = nil
-        dragging = false
+        let grabbed = candidates
+        let since = downTime
+        candidates = [:]
+        dragged = nil
+        guard !grabbed.isEmpty else { return }
 
-        // Let the window settle into its final frame first.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            MainActor.assumeIsolated { self?.manager?.onGrabEnd(grab.id, original: grab.rect) }
+        for (id, rect) in grabbed {
+            settle(id, previous: nil, attempts: 10) { [weak self] in
+                guard let manager = self?.manager, !manager.wasMovedByPopMac(id, since: since) else { return }
+                manager.onGrabEnd(id, original: rect)
+            }
         }
     }
 
-    /// The managed window that is topmost under the cursor.
-    private func windowUnderCursor() -> WindowID? {
-        let cursor = Displays.cursor
-        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return nil
+    /// Waits until a window's frame stops changing, then runs `done`.
+    ///
+    /// Apps apply a mouse resize with some lag, so the frame right after the
+    /// mouse-up can miss the last few points.
+    private func settle(_ id: WindowID, previous: Rect?, attempts: Int, done: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, let frame = self.manager?.windows[id]?.frame else { return }
+                if frame == previous || attempts <= 0 {
+                    done()
+                } else {
+                    self.settle(id, previous: frame, attempts: attempts - 1, done: done)
+                }
+            }
         }
+    }
+
+    /// Managed windows whose frame, widened by the grab margin, holds the cursor.
+    private func windowsNearCursor() -> [WindowID: Rect] {
+        guard let manager,
+              let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return [:] }
+
+        let cursor = Displays.cursor
         let ownPID = ProcessInfo.processInfo.processIdentifier
+        var result: [WindowID: Rect] = [:]
+
         for entry in info {
             guard (entry[kCGWindowLayer as String] as? Int) == 0,
+                  (entry[kCGWindowOwnerPID as String] as? Int32) != ownPID,
+                  let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  manager.windows[id] != nil,
                   let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDict)
             else { continue }
             let rect = Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height))
-            guard rect.contains(cursor) else { continue }
-            // Skip Pop Mac's own windows, such as the overlay.
-            if (entry[kCGWindowOwnerPID as String] as? Int32) == ownPID { continue }
-            return (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+            if rect.inset(by: -Self.grabMargin).contains(cursor) {
+                result[id] = rect
+            }
         }
-        return nil
+        return result
     }
 }

@@ -289,66 +289,122 @@ public final class AutoTiler {
         }
     }
 
-    /// Grows or shrinks a tiled window by one step with the keyboard.
+    /// An edge of a window's tile.
+    public enum Edge: CaseIterable {
+        case left, right, top, bottom
+    }
+
+    /// Finds the fork whose split lies along an edge of the window's tile.
     ///
-    /// Right and down grow the window. Left and up shrink it.
-    public func resizeAuto(_ window: WindowID, direction: Direction, step: Double = 64) {
-        guard let fork = forest.attached[window],
-              var crect = forest.tileRects[window] ?? env.windowRect(window)
-        else { return }
-
-        let toparea = forest.toplevel(of: fork).area
-        var grabRect = crect
-
-        let moves: [Rect]
-        switch direction {
-        case .left: moves = [Rect(step, 0, -step, 0), Rect(0, 0, -step, 0)]
-        case .right: moves = [Rect(0, 0, step, 0), Rect(-step, 0, step, 0)]
-        case .up: moves = [Rect(0, step, 0, -step), Rect(0, 0, 0, -step)]
-        case .down: moves = [Rect(0, 0, 0, step), Rect(0, -step, 0, step)]
+    /// Walks up from the window. A right edge belongs to the first horizontal
+    /// fork that holds the window in its left branch, and so on.
+    public func splitFork(of window: WindowID, edge: Edge) -> Fork? {
+        guard var current = forest.attached[window] else { return nil }
+        var inLeft = current.left.isWindow(window)
+        while true {
+            switch edge {
+            case .right where current.isHorizontal && inLeft,
+                 .left where current.isHorizontal && !inLeft,
+                 .bottom where !current.isHorizontal && inLeft,
+                 .top where !current.isHorizontal && !inLeft:
+                return current.right == nil ? nil : current
+            default:
+                break
+            }
+            guard let parent = current.parent else { return nil }
+            inLeft = parent.left.isFork(current)
+            current = parent
         }
+    }
+
+    /// Moves the splits next to a window, so that its tile becomes `target` where the tree allows.
+    ///
+    /// Each edge moves independently: dragging a corner moves two splits.
+    /// Returns false if no split moved.
+    @discardableResult
+    public func resizeTile(_ window: WindowID, to target: Rect) -> Bool {
+        guard let fork = forest.attached[window], let tile = forest.tileRects[window] else { return false }
+        let top = forest.toplevel(of: fork)
+        let half = forest.gapInner / 2
 
         forest.manuallyMoved = true
         defer { forest.manuallyMoved = false }
 
-        for mov in moves {
-            crect.apply(mov)
-            let before = crect
-            crect.clamp(toparea)
-            let diff = before.diff(crect)
-            crect.apply(Rect(0, 0, -diff.x, -diff.y))
+        let edges: [(Edge, Double, Double)] = [
+            (.left, tile.x, target.x), (.right, tile.maxX, target.maxX),
+            (.top, tile.y, target.y), (.bottom, tile.maxY, target.maxY),
+        ]
 
-            if crect == grabRect { continue }
-            guard let current = forest.attached[window] else { break }
-            forest.resize(fork: current, window: window, movement: Movement.calculate(from: grabRect, change: crect), crect: crect)
-            grabRect = crect
+        var changed = false
+        for (edge, old, new) in edges where abs(new - old) >= 1 {
+            guard let split = splitFork(of: window, edge: edge) else { continue }
+            // The window sits half a gap away from the split line.
+            let line: Double
+            switch edge {
+            case .left: line = new - half - split.area.x
+            case .right: line = new + half - split.area.x
+            case .top: line = new - half - split.area.y
+            case .bottom: line = new + half - split.area.y
+            }
+            split.setRatio(line)
+            // Update the areas of nested forks before the next edge.
+            forest.measure(top, area: top.area)
+            changed = true
         }
 
-        arrange()
+        if changed {
+            forest.measure(top, area: top.area)
+            arrange()
+        }
+        return changed
+    }
+
+    /// Grows or shrinks a tiled window by one step with the keyboard.
+    ///
+    /// Right and down grow the window, left and up shrink it. The edge next
+    /// to a neighbor moves; a window at the screen edge moves its other edge.
+    public func resizeAuto(_ window: WindowID, direction: Direction, step: Double = 64) {
+        guard var target = forest.tileRects[window] else { return }
+
+        let horizontal = direction == .left || direction == .right
+        let grow = direction == .right || direction == .down
+        let delta = grow ? step : -step
+
+        if horizontal {
+            if splitFork(of: window, edge: .right) != nil {
+                target.width += delta
+            } else if splitFork(of: window, edge: .left) != nil {
+                target.x -= delta
+                target.width += delta
+            }
+        } else {
+            if splitFork(of: window, edge: .bottom) != nil {
+                target.height += delta
+            } else if splitFork(of: window, edge: .top) != nil {
+                target.y -= delta
+                target.height += delta
+            }
+        }
+
+        resizeTile(window, to: target)
     }
 
     /// Applies a resize that the user made with the mouse.
+    ///
+    /// The tile's edges move by as much as the window's edges moved. The tile
+    /// can be larger than the window, for example with a maximum width.
     public func resizeByMouse(_ window: WindowID, from frame: Rect, to newFrame: Rect) {
         guard let fork = forest.attached[window] else { return }
-        // The tile can be larger than the window, for example with a maximum width.
-        // Move the tile's edges by as much as the window's edges moved.
-        let original = forest.tileRects[window] ?? frame
-        let x = original.x + (newFrame.x - frame.x)
-        let y = original.y + (newFrame.y - frame.y)
-        let maxX = original.maxX + (newFrame.maxX - frame.maxX)
-        let maxY = original.maxY + (newFrame.maxY - frame.maxY)
-        var crect = Rect(x, y, maxX - x, maxY - y)
-        crect.clamp(forest.toplevel(of: fork).area)
+        let tile = forest.tileRects[window] ?? frame
+        let x = tile.x + (newFrame.x - frame.x)
+        let y = tile.y + (newFrame.y - frame.y)
+        let maxX = tile.maxX + (newFrame.maxX - frame.maxX)
+        let maxY = tile.maxY + (newFrame.maxY - frame.maxY)
 
-        let movement = Movement.calculate(from: original, change: crect)
-        forest.manuallyMoved = true
-        defer { forest.manuallyMoved = false }
-        if movement == .none || movement == .moved {
+        if !resizeTile(window, to: Rect(x, y, maxX - x, maxY - y)) {
+            // Nothing could move, for example at the screen edge: snap back.
             retile(fork)
-            return
         }
-        forest.resize(fork: fork, window: window, movement: movement, crect: crect)
-        arrange()
     }
 
     // MARK: - Mouse drops

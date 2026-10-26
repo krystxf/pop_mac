@@ -267,8 +267,6 @@ public struct Settings: Codable, Equatable {
     public var primaryModifiers: [MacModifier] = [.command]
     /// Overrides for the default key bindings, keyed by action name.
     public var keybindings: [String: [String]] = [:]
-    /// Windows that float instead of tile. Checked before the built-in rules.
-    public var floatRules: [FloatRule] = []
 
     public init() {}
 
@@ -291,7 +289,6 @@ public struct Settings: Codable, Equatable {
         superModifiers = try c.decodeIfPresent([MacModifier].self, forKey: .superModifiers) ?? d.superModifiers
         primaryModifiers = try c.decodeIfPresent([MacModifier].self, forKey: .primaryModifiers) ?? d.primaryModifiers
         keybindings = try c.decodeIfPresent([String: [String]].self, forKey: .keybindings) ?? d.keybindings
-        floatRules = try c.decodeIfPresent([FloatRule].self, forKey: .floatRules) ?? d.floatRules
     }
 
     /// The key bindings for an action, with user overrides applied.

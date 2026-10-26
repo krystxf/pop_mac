@@ -22,8 +22,7 @@ func diagnose() {
             for windowElement in AX.elements(element, kAXWindowsAttribute) {
                 guard let id = AX.windowID(windowElement) else { continue }
                 let window = ManagedWindow(id: id, element: windowElement, app: app, appElement: element)
-                let floats = FloatRules.windowShallFloat(appName: window.appName, bundleID: window.bundleID, title: window.title, userRules: [])
-                print("  [\(id)] \(window.appName) “\(window.title)” standard=\(window.isStandard) resizable=\(window.isResizable) floatRule=\(floats) frame=\(window.frame.map { "\($0)" } ?? "-") space=\(Spaces.space(of: id).map(String.init) ?? "?")")
+                print("  [\(id)] \(window.appName) “\(window.title)” standard=\(window.isStandard) resizable=\(window.isResizable) frame=\(window.frame.map { "\($0)" } ?? "-") space=\(Spaces.space(of: id).map(String.init) ?? "?")")
             }
         }
     }

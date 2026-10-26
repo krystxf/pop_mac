@@ -14,7 +14,7 @@ Pop Shell's window stacking is not included.
 | Tile mode (Super + Return): move, resize, swap, orientation | Same, including the grid overlay for floating windows |
 | Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows. |
 | Resize a tiled window with the mouse | Same. The neighbors follow. |
-| Toggle floating (Super + G), floating exceptions | Same. Every standard window tiles by default; only windows you float or match with a rule float. |
+| Toggle floating (Super + G) | Same. Every standard window tiles; only windows you float with Super + G float. Floating window exceptions are not included. |
 | Toggle auto-tiling (Super + Y) | Same. Windows return to their original frames. |
 | Move window to another display | Same |
 | Move window to another workspace | Moves the window to the previous or next Space (see limitations) |
@@ -110,21 +110,13 @@ The menu bar item **Edit Config File…** opens it. Missing keys use their defau
   "keybindings": {
     "focus-left": ["<Super>Left", "<Super>h"],
     "tile-move-left-global": ["<Super><Shift>Left"]
-  },
-  "floatRules": [
-    { "app": "^com\\.apple\\.finder$" },
-    { "app": "Slack", "title": "Huddle" },
-    { "app": "com.apple.calculator", "disabled": true }
-  ]
+  }
 }
 ```
 
 - `keybindings` uses Pop Shell's action names and key syntax.
   Modifiers are `<Super>`, `<Primary>`, `<Shift>`, `<Control>`, `<Alt>` (Option), and `<Cmd>`.
   A binding replaces all default keys of its action. An empty list disables the action.
-- `floatRules` are case-insensitive regular expressions.
-  `app` matches the app name or the bundle id. `title` matches the window title.
-  A rule with `"disabled": true` makes matching windows tile, even if a built-in rule floats them.
 - `mouseCursorFocusLocation` is one of `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
 
 ## Limitations

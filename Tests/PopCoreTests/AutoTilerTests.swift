@@ -140,8 +140,49 @@ final class FakeEnv: TilingEnvironment {
         env.open(tiler, 2)
         let original = env.rects[1]!
         tiler.resizeByMouse(1, from: original, to: Rect(0, 0, 1000, 1000))
-        #expect(env.rects[1]!.width == 992)
-        #expect(env.rects[2]!.x == 992)
+        #expect(env.rects[1]!.width == 1000)
+        #expect(env.rects[2]!.x == 1000)
+    }
+
+    @Test func smallMouseResizeIsKept() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        let original = env.rects[1]!
+        tiler.resizeByMouse(1, from: original, to: Rect(0, 0, 810, 1000))
+        #expect(env.rects[1]!.width == 810)
+    }
+
+    @Test func cornerResizeMovesTwoSplits() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        env.open(tiler, 3)
+        // Window 3 is bottom right. Drag its top-left corner up and left.
+        let original = env.rects[3]!
+        #expect(original == Rect(800, 500, 800, 500))
+        tiler.resizeByMouse(3, from: original, to: Rect(700, 400, 900, 600))
+        #expect(env.rects[3] == Rect(700, 400, 900, 600))
+        #expect(env.rects[1]!.width == 700)
+        #expect(env.rects[2] == Rect(700, 0, 900, 400))
+    }
+
+    @Test func resizeAtScreenEdgeSnapsBack() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        let original = env.rects[1]!
+        // The left edge of window 1 is the screen edge; it has no split.
+        env.rects[1] = Rect(100, 0, 700, 1000)
+        tiler.resizeByMouse(1, from: original, to: Rect(100, 0, 700, 1000))
+        #expect(env.rects[1] == original)
+    }
+
+    @Test func keyboardResizeAtRightEdgeMovesLeftEdge() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        // Window 2 touches the right screen edge, so growing moves its left edge.
+        tiler.resizeAuto(2, direction: .right)
+        #expect(env.rects[2] == Rect(736, 0, 864, 1000))
+        tiler.resizeAuto(2, direction: .left)
+        #expect(env.rects[2] == Rect(800, 0, 800, 1000))
     }
 
     @Test func dropOnLeftEdgePlacesWindowLeft() {

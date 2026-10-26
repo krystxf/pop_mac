@@ -189,19 +189,8 @@ public final class Fork {
         }
 
         let total = length
-        let start = isHorizontal ? self.area.x : self.area.y
-        let half = total / 2
         let gapHalf = forest.gapInner / 2
-
-        // Snap the split to the middle, or to a 32 point grid.
-        var split: Double
-        if lengthLeft > half - 32 && lengthLeft < half + 32 {
-            split = half
-        } else {
-            let diff = (start + lengthLeft).truncatingRemainder(dividingBy: 32)
-            split = lengthLeft - diff + (diff > 16 ? 32 : 0)
-            if split == 0 { split = 32 }
-        }
+        let split = lengthLeft.rounded()
 
         var region = self.area
         if isHorizontal {

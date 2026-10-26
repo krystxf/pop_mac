@@ -29,15 +29,6 @@ import Testing
         #expect(KeyCombo.parse("Escape", superModifiers: [], primaryModifiers: [])?.modifiers.isEmpty == true)
     }
 
-    @Test func floatRulesMatch() {
-        #expect(!FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "Calculator", userRules: []))
-        #expect(!FloatRules.windowShallFloat(appName: "Terminal", bundleID: "com.apple.Terminal", title: "zsh", userRules: []))
-        let rules = [FloatRule(app: "Terminal")]
-        #expect(FloatRules.windowShallFloat(appName: "Terminal", bundleID: "com.apple.Terminal", title: "zsh", userRules: rules))
-        let disabled = [FloatRule(app: "com.apple.calculator", disabled: true)]
-        #expect(!FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "", userRules: disabled))
-    }
-
     @Test func settingsDecodeWithDefaults() throws {
         let json = #"{"gapInner": 4, "keybindings": {"focus-left": ["<Super>a"]}}"#
         let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
