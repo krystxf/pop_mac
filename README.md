@@ -157,7 +157,7 @@ POP_MAC_DEBUG=1 build/PopMac.app/Contents/MacOS/PopMac   # verbose log on stderr
 The code has two parts:
 
 - `Sources/PopCore` is the tiling engine without any AppKit code. It ports Pop Shell's `fork.ts`, `forest.ts`, `auto_tiler.ts`, `focus.ts`, and parts of `tiling.ts`. The tests in `Tests/PopCoreTests` cover it.
-- `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, registers hot keys through Carbon, and draws the overlay, active hint, stack tabs, and launcher with AppKit.
+- `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, catches key bindings with a keyboard event tap, and draws the overlay, active hint, stack tabs, and launcher with AppKit.
 
 ## License
 

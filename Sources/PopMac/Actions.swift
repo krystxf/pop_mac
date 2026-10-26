@@ -24,10 +24,23 @@ extension WindowManager {
                 : !action.isTileMode
             guard active else { continue }
             for combo in settings.combos(for: action) {
-                hotkeys.register(combo) { [weak self] in
+                hotkeys.register(combo, repeats: Self.repeats(action)) { [weak self] in
                     MainActor.assumeIsolated { self?.perform(action) }
                 }
             }
+        }
+    }
+
+    /// Actions that run again while their key is held down.
+    private static func repeats(_ action: Action) -> Bool {
+        switch action {
+        case .focusLeft, .focusDown, .focusUp, .focusRight,
+             .tileMoveLeft, .tileMoveDown, .tileMoveUp, .tileMoveRight,
+             .tileResizeLeft, .tileResizeDown, .tileResizeUp, .tileResizeRight,
+             .tileSwapLeft, .tileSwapDown, .tileSwapUp, .tileSwapRight:
+            return true
+        default:
+            return false
         }
     }
 

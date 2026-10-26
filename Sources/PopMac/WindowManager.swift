@@ -35,8 +35,11 @@ final class WindowManager {
     let hotkeys = HotkeyManager()
     private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
+    private var signalSource: DispatchSourceSignal?
     var tileMode: TileMode?
     private var hintScheduled = false
+    private var pendingVerify: [WindowID: Rect] = [:]
+    private var verifyScheduled = false
     private var stacksScheduled = false
     private var spaceScanScheduled = false
 
@@ -62,6 +65,15 @@ final class WindowManager {
         if let focused = focusedWindow() {
             onFocused(focused)
         }
+
+        // `kill -USR1 <pid>` writes the tiling tree to the log.
+        signal(SIGUSR1, SIG_IGN)
+        let dump = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        dump.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { if let self { Log.info(self.dumpTree()) } }
+        }
+        dump.resume()
+        signalSource = dump
 
         let mouse = MouseMonitor(manager: self)
         mouse.start()
@@ -740,9 +752,36 @@ extension WindowManager: @preconcurrency TilingEnvironment {
             }
             if let frame = window.frame, frame.approximatelyEquals(target, tolerance: 1) { continue }
             window.setFrame(target)
+            pendingVerify[id] = target
         }
         if tileMode != nil { refreshTileOverlay() }
         scheduleHint()
+        scheduleVerify()
+    }
+
+    /// Checks moved windows again after a moment, and fixes the ones that missed.
+    ///
+    /// macOS clamps a window to its old display while it crosses to another one,
+    /// and some apps apply a new frame asynchronously.
+    private func scheduleVerify() {
+        guard !pendingVerify.isEmpty, !verifyScheduled else { return }
+        verifyScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.verifyScheduled = false
+                let pending = self.pendingVerify
+                self.pendingVerify.removeAll()
+                for (id, target) in pending {
+                    guard let window = self.windows[id], self.maximized[id] == nil,
+                          let frame = window.frame, !frame.approximatelyEquals(target, tolerance: 2)
+                    else { continue }
+                    Log.debug("window \(id) missed its frame \(target), got \(frame); retrying")
+                    window.setFrame(target)
+                }
+                self.scheduleHint()
+            }
+        }
     }
 
     func updateStacks(_ stacks: [StackNode]) {
