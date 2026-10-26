@@ -247,10 +247,9 @@ public enum FocusLocation: String, Codable, CaseIterable {
 /// All user settings. Stored as JSON in `~/.config/pop-mac/config.json`.
 public struct Settings: Codable, Equatable {
     public var tileByDefault = true
-    public var activeHint = true
-    public var activeHintBorderRadius: Double = 10
-    public var activeHintWidth: Double = 3
-    public var hintColor = "#FBB86C"
+    /// The color of the overlay that shows where a window will go.
+    public var overlayColor = "#FBB86C"
+    public var overlayBorderRadius: Double = 10
     public var gapInner: Double = 8
     public var gapOuter: Double = 8
     public var smartGaps = false
@@ -277,10 +276,8 @@ public struct Settings: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Settings()
         tileByDefault = try c.decodeIfPresent(Bool.self, forKey: .tileByDefault) ?? d.tileByDefault
-        activeHint = try c.decodeIfPresent(Bool.self, forKey: .activeHint) ?? d.activeHint
-        activeHintBorderRadius = try c.decodeIfPresent(Double.self, forKey: .activeHintBorderRadius) ?? d.activeHintBorderRadius
-        activeHintWidth = try c.decodeIfPresent(Double.self, forKey: .activeHintWidth) ?? d.activeHintWidth
-        hintColor = try c.decodeIfPresent(String.self, forKey: .hintColor) ?? d.hintColor
+        overlayColor = try c.decodeIfPresent(String.self, forKey: .overlayColor) ?? d.overlayColor
+        overlayBorderRadius = try c.decodeIfPresent(Double.self, forKey: .overlayBorderRadius) ?? d.overlayBorderRadius
         gapInner = try c.decodeIfPresent(Double.self, forKey: .gapInner) ?? d.gapInner
         gapOuter = try c.decodeIfPresent(Double.self, forKey: .gapOuter) ?? d.gapOuter
         smartGaps = try c.decodeIfPresent(Bool.self, forKey: .smartGaps) ?? d.smartGaps

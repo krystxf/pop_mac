@@ -72,7 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let s = manager.settings
         menu.addItem(toggle("Tile Windows", manager.autoTiler != nil, #selector(toggleTiling), hint: .toggleTiling))
-        menu.addItem(toggle("Show Active Hint", s.activeHint, #selector(toggleHint)))
         menu.addItem(.separator())
 
         menu.addItem(gapMenu("Inner Gap", current: s.gapInner, action: #selector(setInnerGap(_:))))
@@ -145,7 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Menu actions
 
     @objc private func toggleTiling() { manager?.toggleTiling() }
-    @objc private func toggleHint() { manager?.update { $0.activeHint.toggle() } }
     @objc private func toggleSmartGaps() { manager?.update { $0.smartGaps.toggle() } }
     @objc private func toggleCursorFollows() { manager?.update { $0.mouseCursorFollowsActiveWindow.toggle() } }
     @objc private func toggleSnap() { manager?.update { $0.snapToGrid.toggle() } }

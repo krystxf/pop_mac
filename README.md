@@ -18,7 +18,6 @@ Pop Shell's window stacking is not included.
 | Toggle auto-tiling (Super + Y) | Same. Windows return to their original frames. |
 | Move window to another display | Same |
 | Move window to another workspace | Moves the window to the previous or next Space (see limitations) |
-| Active hint around the focused window | Same |
 | Inner and outer gaps, smart gaps | Same |
 | Launcher (Super + /) | Search windows and apps. `=` calculates, `:` runs a command, `/` or `~` opens files. |
 | Cursor follows the active window | Same |
@@ -98,10 +97,8 @@ The menu bar item **Edit Config File…** opens it. Missing keys use their defau
   "gapInner": 8,
   "gapOuter": 8,
   "smartGaps": false,
-  "activeHint": true,
-  "activeHintWidth": 3,
-  "activeHintBorderRadius": 10,
-  "hintColor": "#FBB86C",
+  "overlayColor": "#FBB86C",
+  "overlayBorderRadius": 10,
   "mouseCursorFollowsActiveWindow": true,
   "mouseCursorFocusLocation": "center",
   "snapToGrid": false,
@@ -154,7 +151,7 @@ POP_MAC_DEBUG=1 build/PopMac.app/Contents/MacOS/PopMac   # verbose log on stderr
 The code has two parts:
 
 - `Sources/PopCore` is the tiling engine without any AppKit code. It ports Pop Shell's `fork.ts`, `forest.ts`, `auto_tiler.ts`, `focus.ts`, and parts of `tiling.ts`. The tests in `Tests/PopCoreTests` cover it.
-- `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, catches key bindings with a keyboard event tap, and draws the overlay, active hint, and launcher with AppKit.
+- `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, catches key bindings with a keyboard event tap, and draws the overlay and launcher with AppKit.
 
 ## License
 

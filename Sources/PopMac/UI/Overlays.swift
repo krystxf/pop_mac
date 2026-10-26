@@ -69,27 +69,3 @@ final class OverlayWindow: ShapeWindow {
         shape.cornerRadius = radius
     }
 }
-
-/// The border drawn around the focused window.
-final class HintWindow: ShapeWindow {
-    private var width: Double = 3
-
-    init() {
-        super.init(level: .normal)
-        collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary, .moveToActiveSpace]
-    }
-
-    func style(color: NSColor, width: Double, radius: Double) {
-        self.width = width
-        shape.backgroundColor = NSColor.clear.cgColor
-        shape.borderColor = color.cgColor
-        shape.borderWidth = width
-        shape.cornerRadius = radius + width
-    }
-
-    /// Draws the border around a window, and orders it just above that window.
-    func show(around rect: Rect, above window: WindowID) {
-        show(rect.inset(by: -width))
-        order(.above, relativeTo: Int(window))
-    }
-}

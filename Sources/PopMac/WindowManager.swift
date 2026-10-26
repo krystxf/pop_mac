@@ -30,13 +30,11 @@ final class WindowManager {
     private(set) var displays: [Display] = Displays.all()
 
     let overlay = OverlayWindow()
-    let hint = HintWindow()
     let hotkeys = HotkeyManager()
     private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
     private var signalSource: DispatchSourceSignal?
     var tileMode: TileMode?
-    private var hintScheduled = false
     private var pendingVerify: [WindowID: Rect] = [:]
     /// When Pop Mac last moved each window, so the window's own move events can be ignored.
     private var lastSet: [WindowID: Date] = [:]
@@ -153,7 +151,6 @@ final class WindowManager {
             autoTiler.forest.gapInner = settings.gapInner
             retileAll()
         }
-        scheduleHint()
         onStateChange?()
     }
 
@@ -165,13 +162,12 @@ final class WindowManager {
         }
     }
 
-    var hintColor: NSColor {
-        NSColor(hex: settings.hintColor) ?? NSColor(srgbRed: 0.98, green: 0.72, blue: 0.42, alpha: 1)
+    var overlayColor: NSColor {
+        NSColor(hex: settings.overlayColor) ?? NSColor(srgbRed: 0.98, green: 0.72, blue: 0.42, alpha: 1)
     }
 
     private func applyStyles() {
-        overlay.style(color: hintColor, radius: settings.activeHintBorderRadius)
-        hint.style(color: hintColor, width: settings.activeHintWidth, radius: settings.activeHintBorderRadius)
+        overlay.style(color: overlayColor, radius: settings.overlayBorderRadius)
     }
 
     // MARK: - Applications
@@ -274,7 +270,6 @@ final class WindowManager {
 
         case .windowMoved(let element), .windowResized(let element):
             if let id = lookup(element, pid: pid) {
-                if id == prevFocused[1] { scheduleHint() }
                 // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
                 if autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
                    Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5 {
@@ -405,7 +400,6 @@ final class WindowManager {
         maximized.removeValue(forKey: id)
         prevRect.removeValue(forKey: id)
         minimizedAttachments.removeValue(forKey: id)
-        scheduleHint()
     }
 
     func onFocused(_ window: ManagedWindow) {
@@ -416,7 +410,6 @@ final class WindowManager {
 
         // Every window that can tile is tiled, for example after leaving full screen.
         autoTileIfNeeded(window.id)
-        scheduleHint()
 
         if settings.logOnFocus {
             var message = window.describe()
@@ -428,7 +421,6 @@ final class WindowManager {
     }
 
     private func onMinimize(_ id: WindowID, minimized: Bool) {
-        if id == prevFocused[1] { scheduleHint() }
         guard let autoTiler else { return }
 
         if minimized {
@@ -451,7 +443,6 @@ final class WindowManager {
 
     private func onSpaceChanged() {
         exitTileMode()
-        hint.hide()
         guard !spaceScanScheduled else { return }
         spaceScanScheduled = true
         // The window list lags slightly behind the Space switch.
@@ -629,7 +620,6 @@ final class WindowManager {
             }
             window.setFrame(rect)
         }
-        scheduleHint()
     }
 
     /// Detaches a window without moving it back to its pre-tiling frame.
@@ -665,32 +655,6 @@ final class WindowManager {
             CGWarpMouseCursorPosition(CGPoint(x: point.x, y: point.y))
             CGAssociateMouseAndMouseCursorPosition(1)
         }
-    }
-
-    // MARK: - Decorations
-
-    func scheduleHint() {
-        guard !hintScheduled else { return }
-        hintScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                self?.hintScheduled = false
-                self?.updateHint()
-            }
-        }
-    }
-
-    private func updateHint() {
-        guard settings.activeHint, tileMode == nil,
-              let id = prevFocused[1], let window = windows[id],
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid,
-              !window.isMinimized, !window.isHidden, !window.isFullscreen,
-              let frame = window.frame
-        else {
-            hint.hide()
-            return
-        }
-        hint.show(around: frame, above: id)
     }
 
     // MARK: - Mouse
@@ -734,7 +698,6 @@ final class WindowManager {
             let previous = autoTiler.attached[id].map { autoTiler.forest.toplevel(of: $0).workspace }
             autoTiler.onDrop(id, cursor: cursor, key: key, viaOverview: previous?.monitor != key.monitor)
         }
-        scheduleHint()
     }
 
     /// Snaps a floating window to the display grid.
@@ -810,7 +773,6 @@ extension WindowManager: @preconcurrency TilingEnvironment {
             pendingVerify[id] = target
         }
         if tileMode != nil { refreshTileOverlay() }
-        scheduleHint()
         scheduleVerify()
     }
 
@@ -837,7 +799,6 @@ extension WindowManager: @preconcurrency TilingEnvironment {
                     self.lastSet[id] = Date()
                     window.setFrame(target)
                 }
-                self.scheduleHint()
             }
         }
     }

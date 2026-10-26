@@ -227,7 +227,6 @@ extension WindowManager {
             focused.setFrame(display.workArea)
             focused.focus()
         }
-        scheduleHint()
     }
 
     // MARK: - Tile mode
@@ -245,7 +244,6 @@ extension WindowManager {
         }
 
         tileMode = TileMode(window: focused.id, overlay: rect, swapWindow: nil)
-        hint.hide()
         overlay.show(rect)
         registerHotkeys()
     }
@@ -255,7 +253,6 @@ extension WindowManager {
         tileMode = nil
         overlay.hide()
         registerHotkeys()
-        scheduleHint()
     }
 
     func acceptTileMode() {
