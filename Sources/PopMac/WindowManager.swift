@@ -505,6 +505,15 @@ final class WindowManager {
         let visibleKeys = Set(displays.map { currentKey(of: $0) })
         var strikes: [WindowID: Int] = [:]
 
+        // A window whose title now matches a float rule, for example a browser
+        // window that switched to a Google Meet call, leaves its tile.
+        for id in Array(autoTiler.attached.keys) where visible.contains(id) && !forceTile.contains(id) {
+            if let window = windows[id], matchesFloatRule(window) {
+                Log.debug("window \(id) matches a float rule now; floating it")
+                autoTiler.detachWindow(id)
+            }
+        }
+
         for (id, fork) in autoTiler.attached where !visible.contains(id) {
             guard let window = windows[id], !window.isMinimized, !window.isHidden,
                   visibleKeys.contains(autoTiler.forest.toplevel(of: fork).workspace)

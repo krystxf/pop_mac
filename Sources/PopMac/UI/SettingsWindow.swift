@@ -640,7 +640,7 @@ private struct FloatingSettings: View {
         Form {
             Section {
                 if model.settings.floatRules.isEmpty {
-                    Text("No rules. Every window tiles, except Keka, which has a fixed size.")
+                    Text("No rules. Every window tiles, except Google Meet calls and Keka, which has a fixed size.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(Array(model.settings.floatRules.enumerated()), id: \.offset) { index, rule in

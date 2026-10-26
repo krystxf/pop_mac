@@ -45,10 +45,13 @@ public struct FloatRule: Codable, Equatable {
 public enum FloatRules {
     /// Built-in float rules, checked after the user's rules.
     ///
-    /// Only apps whose main window cannot tile belong here.
+    /// Apps whose main window cannot tile, and windows that are better floating.
     public static let defaults: [FloatRule] = [
         // Keka's window has a fixed size.
         FloatRule(app: "^com\\.aone\\.keka$"),
+        // Google Meet calls float beside your work. Browsers title a call "Meet - <name>".
+        FloatRule(title: "^Meet [-–—] "),
+        FloatRule(app: "^Google Meet$"),
     ]
 
     /// Returns true if the window should float.

@@ -31,6 +31,21 @@ struct SupportTests {
 
     @Test func floatRulesMatch() {
         #expect(!FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "Calculator", userRules: []))
+        // Google Meet calls float in any browser, and as an installed web app.
+        #expect(FloatRules.windowShallFloat(
+            appName: "Brave Browser",
+            bundleID: "com.brave.Browser",
+            title: "Meet - Ambient Intelligence stand-up",
+            userRules: []
+        ))
+        #expect(FloatRules.windowShallFloat(
+            appName: "Google Meet",
+            bundleID: "com.google.Chrome.app.kjgfgldnnfoeklkmfkjfagphfepbbdan",
+            title: "Google Meet",
+            userRules: []
+        ))
+        #expect(!FloatRules.windowShallFloat(appName: "Brave Browser", bundleID: "com.brave.Browser", title: "Google Meet", userRules: []))
+        #expect(!FloatRules.windowShallFloat(appName: "Safari", bundleID: "com.apple.Safari", title: "Meeting notes - Google Docs", userRules: []))
         // Keka floats by default, and a disabled user rule makes it tile.
         #expect(FloatRules.windowShallFloat(appName: "Keka", bundleID: "com.aone.keka", title: "Keka", userRules: []))
         #expect(!FloatRules.windowShallFloat(appName: "Keka", bundleID: "com.aone.keka", title: "Keka", userRules: [FloatRule(app: "Keka", disabled: true)]))
