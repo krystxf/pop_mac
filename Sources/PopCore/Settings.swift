@@ -247,7 +247,8 @@ public enum FocusLocation: String, Codable, CaseIterable {
 /// All user settings. Stored as JSON in `~/.config/pop-mac/config.json`.
 public struct Settings: Codable, Equatable {
     public var tileByDefault = true
-    /// The color of the overlay that shows where a window will go.
+    /// The color of the overlay that shows where a window will go:
+    /// `#RRGGBB`, or `accent` for the system accent color.
     public var overlayColor = "#FBB86C"
     public var overlayBorderRadius: Double = 10
     public var gapInner: Double = 8

@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(gapMenu("Inner Gap", current: s.gapInner, action: #selector(setInnerGap(_:))))
         menu.addItem(gapMenu("Outer Gap", current: s.gapOuter, action: #selector(setOuterGap(_:))))
         menu.addItem(toggle("Smart Gaps", s.smartGaps, #selector(toggleSmartGaps)))
+        menu.addItem(colorMenu(current: s.overlayColor))
         menu.addItem(.separator())
 
         menu.addItem(toggle("Cursor Follows Active Window", s.mouseCursorFollowsActiveWindow, #selector(toggleCursorFollows)))
@@ -123,7 +124,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return parent
     }
 
+    private static let colorPresets: [(String, String)] = [
+        ("Pop Orange", "#FBB86C"), ("Blue", "#3D8BFD"), ("Teal", "#2BC4B6"), ("Green", "#5CC06E"),
+        ("Purple", "#A77BF3"), ("Pink", "#F06EAA"), ("Red", "#EF5B5B"), ("Graphite", "#8E8E93"),
+    ]
+
+    /// The highlight color: presets, the system accent color, or any color from the color panel.
+    private func colorMenu(current: String) -> NSMenuItem {
+        let parent = NSMenuItem(title: "Highlight Color", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        var matched = false
+
+        for (name, hex) in Self.colorPresets {
+            let entry = item(name, #selector(setPresetColor(_:)))
+            entry.representedObject = hex
+            entry.image = swatch(NSColor(hex: hex) ?? .gray)
+            if current.caseInsensitiveCompare(hex) == .orderedSame {
+                entry.state = .on
+                matched = true
+            }
+            sub.addItem(entry)
+        }
+
+        let accent = item("System Accent Color", #selector(setPresetColor(_:)))
+        accent.representedObject = "accent"
+        accent.image = swatch(.controlAccentColor)
+        if current == "accent" {
+            accent.state = .on
+            matched = true
+        }
+        sub.addItem(accent)
+
+        sub.addItem(.separator())
+        let custom = item(matched ? "Custom…" : "Custom (\(current.uppercased()))…", #selector(pickCustomColor))
+        custom.state = matched ? .off : .on
+        if !matched, let color = NSColor(hex: current) { custom.image = swatch(color) }
+        sub.addItem(custom)
+
+        parent.submenu = sub
+        return parent
+    }
+
+    private func swatch(_ color: NSColor) -> NSImage {
+        NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3).fill()
+            return true
+        }
+    }
+
     // MARK: - Menu actions
+
+    @objc private func setPresetColor(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String else { return }
+        manager?.update { $0.overlayColor = value }
+        manager?.previewOverlay()
+    }
+
+    @objc private func pickCustomColor() {
+        let panel = NSColorPanel.shared
+        panel.showsAlpha = false
+        panel.isContinuous = true
+        if let manager { panel.color = manager.overlayColor }
+        panel.setTarget(self)
+        panel.setAction(#selector(customColorChanged(_:)))
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func customColorChanged(_ sender: NSColorPanel) {
+        manager?.update { $0.overlayColor = sender.color.hexString }
+        manager?.previewOverlay()
+    }
 
     @objc private func toggleTiling() { manager?.toggleTiling() }
     @objc private func toggleSmartGaps() { manager?.update { $0.smartGaps.toggle() } }

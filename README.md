@@ -117,6 +117,8 @@ The menu bar item **Edit Config File…** opens it. Missing keys use their defau
 - `keybindings` uses Pop Shell's action names and key syntax.
   Modifiers are `<Super>`, `<Primary>`, `<Shift>`, `<Control>`, `<Alt>` (Option), and `<Cmd>`.
   A binding replaces all default keys of its action. An empty list disables the action.
+- `overlayColor` is the highlight color for tile mode and drop previews: `#RRGGBB`, or `accent` for the system accent color.
+  The menu bar item **Highlight Color** sets it too, with presets and a color picker.
 - `mouseCursorFocusLocation` is one of `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
 
 ## Limitations

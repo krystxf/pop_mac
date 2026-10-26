@@ -32,6 +32,7 @@ final class WindowManager {
     private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
     private var signalSource: DispatchSourceSignal?
+    private var previewWork: DispatchWorkItem?
     var tileMode: TileMode?
     private var pendingVerify: [WindowID: Rect] = [:]
     /// When Pop Mac last moved each window, so the window's own move events can be ignored.
@@ -103,6 +104,10 @@ final class WindowManager {
         center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.onSpaceChanged() }
         }
+        // The accent color can change in System Settings.
+        NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyStyles() }
+        }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.onDisplaysChanged() }
         }
@@ -160,11 +165,26 @@ final class WindowManager {
     }
 
     var overlayColor: NSColor {
-        NSColor(hex: settings.overlayColor) ?? NSColor(srgbRed: 0.98, green: 0.72, blue: 0.42, alpha: 1)
+        if settings.overlayColor == "accent" { return .controlAccentColor }
+        return NSColor(hex: settings.overlayColor) ?? NSColor(srgbRed: 0.98, green: 0.72, blue: 0.42, alpha: 1)
     }
 
     private func applyStyles() {
         overlay.style(color: overlayColor, radius: settings.overlayBorderRadius)
+    }
+
+    /// Shows the overlay on the focused window for a moment, to preview a color.
+    func previewOverlay() {
+        guard tileMode == nil, let frame = focusedWindow()?.frame else { return }
+        overlay.show(frame)
+        previewWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                if self?.tileMode == nil { self?.overlay.hide() }
+            }
+        }
+        previewWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
 
     // MARK: - Applications
@@ -683,8 +703,13 @@ final class WindowManager {
         }
         guard autoTiler.isAttached(id) else { return }
 
-        let sizeChanged = abs(current.width - original.width) > 2 || abs(current.height - original.height) > 2
-        if sizeChanged {
+        // A mouse resize keeps the corner opposite the grabbed one in place, so one
+        // horizontal and one vertical edge stay put. In a move every edge moves, even
+        // when macOS changes the window's size during the drag.
+        let near = { (a: Double, b: Double) in abs(a - b) <= 2 }
+        let isResize = (near(current.x, original.x) || near(current.maxX, original.maxX))
+            && (near(current.y, original.y) || near(current.maxY, original.maxY))
+        if isResize {
             autoTiler.resizeByMouse(id, from: original, to: current)
         } else {
             let cursor = Displays.cursor
