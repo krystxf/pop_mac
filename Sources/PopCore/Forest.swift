@@ -303,7 +303,11 @@ public final class Forest {
         }
 
         onDetach?(window)
-        reflow?.rebalanceOrientation()
+        // A fork that still splits keeps its orientation, so the windows stay where they are.
+        // A fork with one window left splits along its longer side when the next window comes.
+        if let reflow, reflow.right == nil {
+            reflow.rebalanceOrientation()
+        }
 
         return reflow
     }
@@ -319,10 +323,15 @@ public final class Forest {
         return parent
     }
 
-    /// Moves the children of `child` into `fork`.
+    /// Moves the children of `child` into `fork`, with the child's orientation and split.
     private func reassignChildrenToParent(_ fork: Fork, child: Fork) {
+        let ratio = child.lengthLeft / child.length
         fork.left = child.left
         fork.right = child.right
+        fork.orientation = child.orientation
+        if ratio.isFinite, ratio > 0 {
+            fork.lengthLeft = (ratio * fork.length).rounded()
+        }
         deleteFork(child)
     }
 

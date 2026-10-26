@@ -100,6 +100,33 @@ struct AutoTilerTests {
         #expect(tiler.attached.isEmpty)
     }
 
+    @Test func closingAWindowKeepsTheParentOrientation() {
+        // 1 and 3 side by side above 2.
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleOrientation(2)
+        env.focusHistory.append(1)
+        env.open(tiler, 3)
+        #expect(env.rects[1] == Rect(0, 0, 800, 500))
+        #expect(env.rects[3] == Rect(800, 0, 800, 500))
+        tiler.detachWindow(3)
+        #expect(env.rects[1] == Rect(0, 0, 1600, 500))
+        #expect(env.rects[2] == Rect(0, 500, 1600, 500))
+    }
+
+    @Test func closingAWindowKeepsTheSiblingForkOrientation() {
+        // 1 above 3, beside 2.
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        env.focusHistory.append(1)
+        env.open(tiler, 3)
+        #expect(env.rects[1] == Rect(0, 0, 800, 500))
+        #expect(env.rects[3] == Rect(0, 500, 800, 500))
+        tiler.detachWindow(2)
+        #expect(env.rects[1] == Rect(0, 0, 1600, 500))
+        #expect(env.rects[3] == Rect(0, 500, 1600, 500))
+    }
+
     @Test func toggleOrientationSplitsVertically() {
         env.open(tiler, 1)
         env.open(tiler, 2)
@@ -191,10 +218,11 @@ struct AutoTilerTests {
         env.open(tiler, 1)
         env.open(tiler, 2)
         env.open(tiler, 3)
-        // Drag window 1 to the left edge of window 3.
+        // Drag window 1 to the left edge of window 3. Window 2 stays above window 3.
         tiler.onDrop(1, cursor: Point(810, 750), key: env.key)
-        #expect(env.rects[1]!.x == 800)
-        #expect(env.rects[3]!.x > 800)
+        #expect(env.rects[2] == Rect(0, 0, 1600, 500))
+        #expect(env.rects[1] == Rect(0, 500, 800, 500))
+        #expect(env.rects[3] == Rect(800, 500, 800, 500))
     }
 
     @Test func dropOnCenterSwaps() {
