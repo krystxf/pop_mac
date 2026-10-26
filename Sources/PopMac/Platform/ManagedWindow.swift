@@ -13,7 +13,7 @@ final class ManagedWindow {
     init(id: WindowID, element: AXUIElement, app: NSRunningApplication, appElement: AXUIElement) {
         self.id = id
         self.element = element
-        self.pid = app.processIdentifier
+        pid = app.processIdentifier
         self.app = app
         self.appElement = appElement
     }
@@ -64,7 +64,7 @@ final class ManagedWindow {
         AX.set(appElement, kAXFrontmostAttribute, kCFBooleanTrue)
         app.activate(options: [])
         // Some apps (Finder) focus another element when they activate. Raise again after that.
-        let element = self.element
+        let element = element
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             AXUIElementPerformAction(element, kAXRaiseAction as CFString)
             AX.set(element, kAXMainAttribute, kCFBooleanTrue)

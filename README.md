@@ -150,12 +150,18 @@ macOS restricts what a window manager can do. These parts differ from Pop Shell:
 ## Development
 
 ```sh
+make lint     # SwiftFormat in lint mode
+make format   # apply SwiftFormat
 make test     # unit tests for the tiling engine
 make build    # debug build
 make run      # build the app bundle and open it
 .build/debug/PopMac --diagnose   # print displays, Spaces, and windows, then exit
 POP_MAC_DEBUG=1 build/PopMac.app/Contents/MacOS/PopMac   # verbose log on stderr
 ```
+
+CI runs on every push and pull request. It checks the formatting with SwiftFormat, lints the
+shell script and the workflow, builds with warnings as errors, runs the tests, and builds the app
+bundle. The bundle is attached to each run as the `PopMac` artifact.
 
 The code has two parts:
 

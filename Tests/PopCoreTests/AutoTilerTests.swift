@@ -1,5 +1,5 @@
-import Testing
 @testable import PopCore
+import Testing
 
 /// A fake world where windows move instantly to their requested rectangles.
 final class FakeEnv: TilingEnvironment {
@@ -36,7 +36,7 @@ final class FakeEnv: TilingEnvironment {
     }
 }
 
-@Suite struct AutoTilerTests {
+struct AutoTilerTests {
     let env = FakeEnv()
     let tiler: AutoTiler
 

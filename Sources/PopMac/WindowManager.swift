@@ -144,14 +144,16 @@ final class WindowManager {
     private func settingsChanged(from old: Settings) {
         applyStyles()
         if settings.superModifiers != old.superModifiers || settings.primaryModifiers != old.primaryModifiers
-            || settings.keybindings != old.keybindings {
+            || settings.keybindings != old.keybindings
+        {
             registerHotkeys()
         }
         if settings.tileByDefault != old.tileByDefault {
             settings.tileByDefault ? autoTileOn() : autoTileOff()
         }
         if let autoTiler, settings.gapInner != old.gapInner || settings.gapOuter != old.gapOuter
-            || settings.smartGaps != old.smartGaps || settings.maxWindowWidth != old.maxWindowWidth {
+            || settings.smartGaps != old.smartGaps || settings.maxWindowWidth != old.maxWindowWidth
+        {
             autoTiler.forest.gapInner = settings.gapInner
             retileAll()
         }
@@ -272,16 +274,16 @@ final class WindowManager {
         let pid = observer.app.processIdentifier
 
         switch event {
-        case .windowCreated(let element):
+        case let .windowCreated(element):
             // Give the application a moment to set the window's final frame.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 MainActor.assumeIsolated { self?.onWindowCreated(element, observer) }
             }
 
-        case .windowDestroyed(let element):
+        case let .windowDestroyed(element):
             if let id = lookup(element, pid: pid) { onDestroy(id) }
 
-        case .focusedWindowChanged(let element):
+        case let .focusedWindowChanged(element):
             var id = lookup(element, pid: pid)
             if id == nil, let window = register(element, observer) {
                 // A window that was not standard when it was created.
@@ -292,19 +294,19 @@ final class WindowManager {
                 onFocused(window)
             }
 
-        case .windowMinimized(let element):
+        case let .windowMinimized(element):
             if let id = lookup(element, pid: pid) { onMinimize(id, minimized: true) }
 
-        case .windowDeminimized(let element):
+        case let .windowDeminimized(element):
             if let id = lookup(element, pid: pid) { onMinimize(id, minimized: false) }
 
-        case .windowMoved(let element), .windowResized(let element):
-            if let id = lookup(element, pid: pid) {
-                // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
-                if autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
-                   Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5 {
-                    scheduleSnapBack(id)
-                }
+        case let .windowMoved(element), let .windowResized(element):
+            if let id = lookup(element, pid: pid),
+               // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
+               autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
+               Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5
+            {
+                scheduleSnapBack(id)
             }
 
         case .appHidden:
@@ -353,7 +355,8 @@ final class WindowManager {
         else { return nil }
 
         for (other, closing) in closingTabs
-        where closing.pid == window.pid && autoTiler.isAttached(other) && closing.frame.approximatelyEquals(frame, tolerance: 4) {
+            where closing.pid == window.pid && autoTiler.isAttached(other) && closing.frame.approximatelyEquals(frame, tolerance: 4)
+        {
             return other
         }
 
@@ -462,7 +465,8 @@ final class WindowManager {
             // Return to the old place, unless the window came back on another Space.
             if let attachment = minimizedAttachments.removeValue(forKey: id),
                autoTiler.workspace(of: attachment) == actualKey(of: id),
-               autoTiler.restore(id, to: attachment) {
+               autoTiler.restore(id, to: attachment)
+            {
                 return
             }
             autoTiler.autoTile(id)
@@ -563,8 +567,8 @@ final class WindowManager {
     // MARK: - Tiling state
 
     func isTilable(_ id: WindowID) -> Bool {
-        guard let window = windows[id], !floating.contains(id) else { return false }
-        guard window.isStandard, !window.isMinimized, !window.isFullscreen, !window.isHidden else { return false }
+        guard let window = windows[id], !floating.contains(id), window.isStandard, !window.isMinimized, !window.isFullscreen,
+              !window.isHidden else { return false }
         if matchesFloatRule(window) {
             return forceTile.contains(id)
         }
@@ -680,7 +684,7 @@ final class WindowManager {
     func activate(_ id: WindowID, moveCursor: Bool = true) {
         guard let window = windows[id] else { return }
         window.focus()
-        if moveCursor && settings.mouseCursorFollowsActiveWindow, let frame = window.frame {
+        if moveCursor, settings.mouseCursorFollowsActiveWindow, let frame = window.frame {
             let point = settings.mouseCursorFocusLocation.point(in: frame)
             CGWarpMouseCursorPosition(CGPoint(x: point.x, y: point.y))
             CGAssociateMouseAndMouseCursorPosition(1)
@@ -803,7 +807,7 @@ extension WindowManager: @preconcurrency TilingEnvironment {
             guard let window = windows[id], maximized[id] == nil, !window.isFullscreen else { continue }
             var target = rect.rounded()
             let maxWidth = settings.maxWindowWidth
-            if maxWidth > 0 && target.width > maxWidth {
+            if maxWidth > 0, target.width > maxWidth {
                 target.x += ((target.width - maxWidth) / 2).rounded()
                 target.width = maxWidth
             }

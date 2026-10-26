@@ -6,31 +6,31 @@ public enum Node {
     case window(WindowID)
 
     public func isFork(_ fork: Fork) -> Bool {
-        if case .fork(let f) = self { return f === fork }
+        if case let .fork(f) = self { return f === fork }
         return false
     }
 
     public func isWindow(_ window: WindowID) -> Bool {
-        if case .window(let w) = self { return w == window }
+        if case let .window(w) = self { return w == window }
         return false
     }
 
     public var windowID: WindowID? {
-        if case .window(let w) = self { return w }
+        if case let .window(w) = self { return w }
         return nil
     }
 
     public var forkValue: Fork? {
-        if case .fork(let f) = self { return f }
+        if case let .fork(f) = self { return f }
         return nil
     }
 
     /// Calculates the future arrangement of windows in this node.
     func measure(_ forest: Forest, area: Rect) {
         switch self {
-        case .fork(let fork):
+        case let .fork(fork):
             fork.measure(forest, area: area)
-        case .window(let window):
+        case let .window(window):
             forest.record(window, area)
         }
     }
@@ -74,8 +74,8 @@ public final class Fork {
         self.area = area
         self.workspace = workspace
         self.orientation = orientation
-        self.lengthLeft = orientation == .horizontal ? area.width / 2 : area.height / 2
-        self.prevLengthLeft = lengthLeft
+        lengthLeft = orientation == .horizontal ? area.width / 2 : area.height / 2
+        prevLengthLeft = lengthLeft
         forest.adopt(left, into: self)
         if let right { forest.adopt(right, into: self) }
     }

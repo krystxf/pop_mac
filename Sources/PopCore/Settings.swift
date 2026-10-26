@@ -6,10 +6,10 @@ public enum MacModifier: String, Codable, CaseIterable, Hashable {
 
     public var symbol: String {
         switch self {
-        case .control: return "⌃"
-        case .option: return "⌥"
-        case .shift: return "⇧"
-        case .command: return "⌘"
+        case .control: "⌃"
+        case .option: "⌥"
+        case .shift: "⇧"
+        case .command: "⌘"
         }
     }
 
@@ -43,7 +43,7 @@ public struct KeyCombo: Hashable, CustomStringConvertible {
 
         while rest.hasPrefix("<") {
             guard let end = rest.firstIndex(of: ">") else { return nil }
-            let name = rest[rest.index(after: rest.startIndex)..<end]
+            let name = rest[rest.index(after: rest.startIndex) ..< end]
             rest = rest[rest.index(after: end)...]
 
             switch name.lowercased() {
@@ -66,19 +66,19 @@ public struct KeyCombo: Hashable, CustomStringConvertible {
 
     static func displayName(_ key: String) -> String {
         switch key {
-        case "Left", "KP_Left": return "←"
-        case "Right", "KP_Right": return "→"
-        case "Up", "KP_Up": return "↑"
-        case "Down", "KP_Down": return "↓"
-        case "Return": return "↩"
-        case "KP_Enter": return "⌤"
-        case "Escape": return "⎋"
-        case "slash": return "/"
-        case "comma": return ","
-        case "period": return "."
-        case "space": return "Space"
-        case "Tab": return "⇥"
-        default: return key.count == 1 ? key.uppercased() : key
+        case "Left", "KP_Left": "←"
+        case "Right", "KP_Right": "→"
+        case "Up", "KP_Up": "↑"
+        case "Down", "KP_Down": "↓"
+        case "Return": "↩"
+        case "KP_Enter": "⌤"
+        case "Escape": "⎋"
+        case "slash": "/"
+        case "comma": ","
+        case "period": "."
+        case "space": "Space"
+        case "Tab": "⇥"
+        default: key.count == 1 ? key.uppercased() : key
         }
     }
 }
@@ -134,51 +134,51 @@ public enum Action: String, CaseIterable, Codable {
              .tileResizeLeft, .tileResizeDown, .tileResizeUp, .tileResizeRight,
              .tileSwapLeft, .tileSwapDown, .tileSwapUp, .tileSwapRight,
              .tileAccept, .tileReject:
-            return true
+            true
         default:
-            return false
+            false
         }
     }
 
     public var summary: String {
         switch self {
-        case .activateLauncher: return "Launch and switch applications"
-        case .tileEnter: return "Enter tile mode"
-        case .focusLeft: return "Focus window to the left"
-        case .focusDown: return "Focus window below"
-        case .focusUp: return "Focus window above"
-        case .focusRight: return "Focus window to the right"
-        case .tileOrientation: return "Toggle tiling orientation"
-        case .toggleFloating: return "Toggle floating mode for the window"
-        case .toggleTiling: return "Toggle auto-tiling"
-        case .tileMoveLeftGlobal: return "Move window left"
-        case .tileMoveDownGlobal: return "Move window down"
-        case .tileMoveUpGlobal: return "Move window up"
-        case .tileMoveRightGlobal: return "Move window right"
-        case .monitorLeft: return "Move window to the display on the left"
-        case .monitorRight: return "Move window to the display on the right"
-        case .monitorUp: return "Move window to the display above"
-        case .monitorDown: return "Move window to the display below"
-        case .workspaceUp: return "Move window to the previous Space"
-        case .workspaceDown: return "Move window to the next Space"
-        case .toggleMaximize: return "Toggle maximize"
-        case .closeWindow: return "Close window"
-        case .minimizeWindow: return "Minimize window"
-        case .managementOrientation: return "Toggle orientation"
-        case .tileMoveLeft: return "Move window left"
-        case .tileMoveDown: return "Move window down"
-        case .tileMoveUp: return "Move window up"
-        case .tileMoveRight: return "Move window right"
-        case .tileResizeLeft: return "Shrink width"
-        case .tileResizeDown: return "Grow height"
-        case .tileResizeUp: return "Shrink height"
-        case .tileResizeRight: return "Grow width"
-        case .tileSwapLeft: return "Swap with window to the left"
-        case .tileSwapDown: return "Swap with window below"
-        case .tileSwapUp: return "Swap with window above"
-        case .tileSwapRight: return "Swap with window to the right"
-        case .tileAccept: return "Apply changes and exit tile mode"
-        case .tileReject: return "Cancel changes and exit tile mode"
+        case .activateLauncher: "Launch and switch applications"
+        case .tileEnter: "Enter tile mode"
+        case .focusLeft: "Focus window to the left"
+        case .focusDown: "Focus window below"
+        case .focusUp: "Focus window above"
+        case .focusRight: "Focus window to the right"
+        case .tileOrientation: "Toggle tiling orientation"
+        case .toggleFloating: "Toggle floating mode for the window"
+        case .toggleTiling: "Toggle auto-tiling"
+        case .tileMoveLeftGlobal: "Move window left"
+        case .tileMoveDownGlobal: "Move window down"
+        case .tileMoveUpGlobal: "Move window up"
+        case .tileMoveRightGlobal: "Move window right"
+        case .monitorLeft: "Move window to the display on the left"
+        case .monitorRight: "Move window to the display on the right"
+        case .monitorUp: "Move window to the display above"
+        case .monitorDown: "Move window to the display below"
+        case .workspaceUp: "Move window to the previous Space"
+        case .workspaceDown: "Move window to the next Space"
+        case .toggleMaximize: "Toggle maximize"
+        case .closeWindow: "Close window"
+        case .minimizeWindow: "Minimize window"
+        case .managementOrientation: "Toggle orientation"
+        case .tileMoveLeft: "Move window left"
+        case .tileMoveDown: "Move window down"
+        case .tileMoveUp: "Move window up"
+        case .tileMoveRight: "Move window right"
+        case .tileResizeLeft: "Shrink width"
+        case .tileResizeDown: "Grow height"
+        case .tileResizeUp: "Shrink height"
+        case .tileResizeRight: "Grow width"
+        case .tileSwapLeft: "Swap with window to the left"
+        case .tileSwapDown: "Swap with window below"
+        case .tileSwapUp: "Swap with window above"
+        case .tileSwapRight: "Swap with window to the right"
+        case .tileAccept: "Apply changes and exit tile mode"
+        case .tileReject: "Cancel changes and exit tile mode"
         }
     }
 

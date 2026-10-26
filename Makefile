@@ -1,10 +1,16 @@
-.PHONY: build test app run install clean
+.PHONY: build test lint format app run install clean
 
 build:
 	swift build
 
 test:
 	swift test
+
+lint:
+	swiftformat --lint .
+
+format:
+	swiftformat .
 
 app:
 	./scripts/bundle.sh

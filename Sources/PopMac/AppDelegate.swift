@@ -85,7 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(toggle("Snap Floating Windows to Grid", s.snapToGrid, #selector(toggleSnap)))
         menu.addItem(.separator())
 
-
         menu.addItem(toggle("Launcher…", false, #selector(openLauncher), hint: .activateLauncher))
         menu.addItem(item("View All Shortcuts…", #selector(showShortcuts)))
         menu.addItem(item("Edit Config File…", #selector(editConfig)))
@@ -221,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func reloadConfig() {
         do {
-            manager?.reload(try Settings.load())
+            try manager?.reload(Settings.load())
         } catch {
             let alert = NSAlert()
             alert.messageText = "The config file is invalid"

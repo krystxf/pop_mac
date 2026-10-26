@@ -38,9 +38,9 @@ extension WindowManager {
              .tileMoveLeft, .tileMoveDown, .tileMoveUp, .tileMoveRight,
              .tileResizeLeft, .tileResizeDown, .tileResizeUp, .tileResizeRight,
              .tileSwapLeft, .tileSwapDown, .tileSwapUp, .tileSwapRight:
-            return true
+            true
         default:
-            return false
+            false
         }
     }
 
@@ -272,7 +272,7 @@ extension WindowManager {
             }
         }
 
-        if !treeSwapped && autoTiler?.isAttached(mode.window) != true {
+        if !treeSwapped, autoTiler?.isAttached(mode.window) != true {
             window.setFrame(mode.overlay)
         }
 

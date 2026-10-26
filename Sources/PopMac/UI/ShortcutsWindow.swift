@@ -36,7 +36,7 @@ final class ShortcutsWindow {
         paragraph.paragraphSpacing = 3
         text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
 
-        let window = self.window ?? makeWindow()
+        let window = window ?? makeWindow()
         let scroll = window.contentView as! NSScrollView
         let view = scroll.documentView as! NSTextView
         view.textStorage?.setAttributedString(text)

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SWIFTFORMAT_VERSION: 0.64.1
+  ACTIONLINT_VERSION: 1.7.12
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install SwiftFormat
+        run: |
+          curl -fsSL -o swiftformat.zip \
+            "https://github.com/nicklockwood/SwiftFormat/releases/download/${SWIFTFORMAT_VERSION}/swiftformat_linux.zip"
+          unzip -q swiftformat.zip -d "$RUNNER_TEMP/swiftformat"
+          rm swiftformat.zip
+          chmod +x "$RUNNER_TEMP"/swiftformat/swiftformat_linux
+          echo "$RUNNER_TEMP/swiftformat" >> "$GITHUB_PATH"
+
+      - name: SwiftFormat
+        run: swiftformat_linux --lint --reporter github-actions-log .
+
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
+
+      - name: Install actionlint
+        run: |
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" actionlint
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: actionlint
+        run: actionlint -color
+
+  build:
+    name: Build and test
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Build (warnings are errors)
+        run: swift build --build-tests -Xswiftc -warnings-as-errors
+
+      - name: Test
+        run: swift test --skip-build
+
+      - name: Check Info.plist
+        run: plutil -lint Resources/Info.plist
+
+      - name: Build app bundle
+        run: ./scripts/bundle.sh
+
+      - name: Verify code signature
+        run: codesign --verify --deep --strict --verbose=2 build/PopMac.app
+
+      # Launches the app without touching windows. A private API symbol that is
+      # missing on this macOS version makes dyld fail here.
+      - name: Smoke test
+        run: build/PopMac.app/Contents/MacOS/PopMac --diagnose
+
+      - name: Package app
+        run: ditto -c -k --keepParent build/PopMac.app PopMac.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: PopMac
+          path: PopMac.zip
+          if-no-files-found: error

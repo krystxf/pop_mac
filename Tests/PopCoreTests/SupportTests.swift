@@ -1,8 +1,8 @@
 import Foundation
-import Testing
 @testable import PopCore
+import Testing
 
-@Suite struct SupportTests {
+struct SupportTests {
     @Test func focusPicksNearestWindowInDirection() {
         let focused = Rect(0, 0, 800, 1000)
         let windows = [

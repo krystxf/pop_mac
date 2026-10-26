@@ -49,9 +49,9 @@ public final class Forest {
     /// Records the fork as the owner of the node's contents.
     func adopt(_ node: Node, into fork: Fork) {
         switch node {
-        case .fork(let child):
+        case let .fork(child):
             child.parent = fork
-        case .window(let window):
+        case let .window(window):
             setAttached(window, fork)
         }
     }
@@ -117,7 +117,7 @@ public final class Forest {
         }
         fork.workspace = key
         for node in iter(fork) {
-            if case .fork(let f) = node { f.workspace = key }
+            if case let .fork(f) = node { f.workspace = key }
         }
         toplevels[key] = fork
     }
@@ -136,10 +136,10 @@ public final class Forest {
         var nodes: [Node] = []
         var pending: [Fork] = [fork]
         while let current = pending.popLast() {
-            if case .fork(let f) = current.left { pending.append(f) }
+            if case let .fork(f) = current.left { pending.append(f) }
             nodes.append(current.left)
             if let right = current.right {
-                if case .fork(let f) = right { pending.append(f) }
+                if case let .fork(f) = right { pending.append(f) }
                 nodes.append(right)
             }
         }
@@ -223,10 +223,10 @@ public final class Forest {
 
         func place(_ fork: Fork) {
             switch placeBy {
-            case .cursor(let orientation, let swap):
+            case let .cursor(orientation, swap):
                 fork.setOrientation(orientation)
                 if swap { fork.swapBranches() }
-            case .keyboard(let src):
+            case let .keyboard(src):
                 placeByKeyboard(fork, src)
             case .auto:
                 break
@@ -243,7 +243,7 @@ public final class Forest {
             } else {
                 fork.right = rightNode
                 fork.setRatio(fork.length / 2)
-                if case .keyboard(let src) = placeBy { placeByKeyboard(fork, src) }
+                if case let .keyboard(src) = placeBy { placeByKeyboard(fork, src) }
             }
             return fork
         } else if let right = fork.right, right.isWindow(onto) {
@@ -270,7 +270,7 @@ public final class Forest {
                 reflow = reassignChildToParent(child: fork, parent: parent, branch: right)
             } else if let right = fork.right {
                 reflow = fork
-                if case .fork(let child) = right {
+                if case let .fork(child) = right {
                     reassignChildrenToParent(fork, child: child)
                 } else {
                     fork.left = right
@@ -284,7 +284,7 @@ public final class Forest {
                 reflow = reassignChildToParent(child: fork, parent: parent, branch: fork.left)
             } else {
                 reflow = fork
-                if case .fork(let child) = fork.left {
+                if case let .fork(child) = fork.left {
                     reassignChildrenToParent(fork, child: child)
                 } else {
                     fork.right = nil
@@ -349,8 +349,8 @@ public final class Forest {
 
     private func describe(_ node: Node, scope: Int, rect: (WindowID) -> Rect?) -> String {
         switch node {
-        case .fork(let f): return describe(f, scope: scope, rect: rect)
-        case .window(let w): return "Window(\(w)) \(rect(w).map { "\($0)" } ?? "?")"
+        case let .fork(f): describe(f, scope: scope, rect: rect)
+        case let .window(w): "Window(\(w)) \(rect(w).map { "\($0)" } ?? "?")"
         }
     }
 }

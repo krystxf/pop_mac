@@ -61,7 +61,7 @@ enum KeyCodes {
 
         data.withUnsafeBytes { raw in
             guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
-            for code in 0..<128 {
+            for code in 0 ..< 128 {
                 var deadKeys: UInt32 = 0
                 var length = 0
                 var chars = [UniChar](repeating: 0, count: 4)

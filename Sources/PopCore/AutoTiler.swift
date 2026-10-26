@@ -93,7 +93,7 @@ public final class AutoTiler {
 
     /// Clears the smart gap of a top-level fork when it gains a second branch.
     private func unsmartGap(_ fork: Fork) {
-        if fork.isToplevel && fork.smartGapped, let rect = outerArea(fork.workspace.monitor) {
+        if fork.isToplevel, fork.smartGapped, let rect = outerArea(fork.workspace.monitor) {
             fork.smartGapped = false
             fork.area = rect
         }
@@ -106,7 +106,8 @@ public final class AutoTiler {
         // A workspace has one tree. Never replace a tree that still holds windows.
         if let top = forest.findToplevel(key),
            let onto = forest.windows(in: top).first(where: { $0 != window }),
-           attachToWindow(onto, window, moveBy: .auto) {
+           attachToWindow(onto, window, moveBy: .auto)
+        {
             return
         }
         guard var rect = env.workArea(key.monitor) else { return }
@@ -134,8 +135,9 @@ public final class AutoTiler {
     public func attachToWorkspace(_ window: WindowID, key: WorkspaceKey) {
         if let top = forest.findToplevel(key),
            let onto = forest.largestWindow(in: top, rect: tilableRect)
-               ?? forest.windows(in: top).first(where: { $0 != window }),
-           attachToWindow(onto, window, moveBy: .auto) {
+           ?? forest.windows(in: top).first(where: { $0 != window }),
+           attachToWindow(onto, window, moveBy: .auto)
+        {
             return
         }
         attachToMonitor(window, key: key)
@@ -176,9 +178,8 @@ public final class AutoTiler {
 
     /// Detaches the window from the tree, if it is attached.
     public func detachWindow(_ window: WindowID) {
-        guard let fork = forest.takeAttached(window) else { return }
-        guard let reflow = forest.detach(fork, window: window) else { return }
-        if reflow.isToplevel && env.smartGaps && reflow.right == nil, let rect = env.workArea(reflow.workspace.monitor) {
+        guard let fork = forest.takeAttached(window), let reflow = forest.detach(fork, window: window) else { return }
+        if reflow.isToplevel, env.smartGaps, reflow.right == nil, let rect = env.workArea(reflow.workspace.monitor) {
             reflow.area = rect
             reflow.smartGapped = true
         }
@@ -213,7 +214,7 @@ public final class AutoTiler {
         fork.toggleOrientation()
         forest.measure(fork, area: fork.area)
         for node in forest.iter(fork) {
-            if case .fork(let child) = node {
+            if case let .fork(child) = node {
                 child.rebalanceOrientation()
                 forest.measure(child, area: child.area)
             }
@@ -269,7 +270,7 @@ public final class AutoTiler {
     /// Moves the focused window onto another window, or onto another display.
     public func moveAuto(_ focused: WindowID, to target: MoveTarget) {
         switch target {
-        case .window(let moveTo):
+        case let .window(moveTo):
             if let parent = windowsAreSiblings(focused, moveTo), parent.right != nil {
                 parent.swapBranches()
                 retile(parent)
@@ -279,11 +280,12 @@ public final class AutoTiler {
             guard let src = env.windowRect(focused) else { return }
             detachWindow(focused)
             if !attachToWindow(moveTo, focused, moveBy: .keyboard(src: src)),
-               let key = env.workspaceKey(of: moveTo) {
+               let key = env.workspaceKey(of: moveTo)
+            {
                 attachToWorkspace(focused, key: key)
             }
 
-        case .workspace(let key):
+        case let .workspace(key):
             detachWindow(focused)
             attachToWorkspace(focused, key: key)
         }
@@ -339,12 +341,11 @@ public final class AutoTiler {
         for (edge, old, new) in edges where abs(new - old) >= 1 {
             guard let split = splitFork(of: window, edge: edge) else { continue }
             // The window sits half a gap away from the split line.
-            let line: Double
-            switch edge {
-            case .left: line = new - half - split.area.x
-            case .right: line = new + half - split.area.x
-            case .top: line = new - half - split.area.y
-            case .bottom: line = new + half - split.area.y
+            let line: Double = switch edge {
+            case .left: new - half - split.area.x
+            case .right: new + half - split.area.x
+            case .top: new - half - split.area.y
+            case .bottom: new + half - split.area.y
             }
             split.setRatio(line)
             // Update the areas of nested forks before the next edge.
@@ -412,10 +413,10 @@ public final class AutoTiler {
     /// Derives how a window attaches from the side of `area` nearest to the cursor.
     public func cursorPlacement(area: Rect, cursor: Point) -> (orientation: Orientation, swap: Bool) {
         switch Geom.nearestSide(cursor, area, allowCenter: false).1 {
-        case .left: return (.horizontal, true)
-        case .top: return (.vertical, true)
-        case .bottom: return (.vertical, false)
-        case .right, .center: return (.horizontal, false)
+        case .left: (.horizontal, true)
+        case .top: (.vertical, true)
+        case .bottom: (.vertical, false)
+        case .right, .center: (.horizontal, false)
         }
     }
 
@@ -425,7 +426,7 @@ public final class AutoTiler {
             return found
         }
         guard let fork = forest.attached[window] else { return nil }
-        if case .window(let l) = fork.left, case .window(let r)? = fork.right {
+        if case let .window(l) = fork.left, case let .window(r)? = fork.right {
             return l == window ? r : l
         }
         return nil
@@ -505,7 +506,7 @@ public final class AutoTiler {
 
         // If the window is not over anything, assume that it attaches to its sibling.
         if attachTo == nil {
-            if case .window(let l) = fork.left, case .window(let r)? = fork.right {
+            if case let .window(l) = fork.left, case let .window(r)? = fork.right {
                 attachTo = l == window ? r : l
             } else if !windowless {
                 retile(fork)
@@ -544,7 +545,7 @@ public final class AutoTiler {
             ? (swapSides ? .left : .right)
             : (swapSides ? .up : .down)
 
-        /// Orders the window and its sibling in `fork` so the window is on the drop side.
+        // Orders the window and its sibling in `fork` so the window is on the drop side.
         func arrange(_ fork: Fork) {
             fork.setOrientation(orientation)
             let isLeft = fork.left.isWindow(window)
@@ -556,7 +557,7 @@ public final class AutoTiler {
 
         if isSibling {
             arrange(fork)
-        } else if fork.isToplevel && fork.right == nil {
+        } else if fork.isToplevel, fork.right == nil {
             detachWindow(window)
             attachToWindow(attachTo, window, moveBy: .cursor(orientation: orientation, swap: swapSides))
             if let newFork = forest.attached[window] { arrange(newFork) }

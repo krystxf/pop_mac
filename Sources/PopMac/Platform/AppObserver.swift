@@ -38,7 +38,7 @@ final class AppObserver {
 
     init?(app: NSRunningApplication, handler: @escaping (AppObserver, AXEvent) -> Void) {
         self.app = app
-        self.element = AXUIElementCreateApplication(app.processIdentifier)
+        element = AXUIElementCreateApplication(app.processIdentifier)
         self.handler = handler
 
         AXUIElementSetMessagingTimeout(element, 1.0)

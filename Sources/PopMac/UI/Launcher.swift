@@ -161,12 +161,22 @@ final class Launcher: NSObject {
         if text.hasPrefix("=") {
             let expression = String(text.dropFirst())
             let result = Calculator.evaluate(expression).map(Calculator.format) ?? "…"
-            return [Item(kind: .calc(result), title: result, subtitle: "Press Return to copy", icon: NSImage(systemSymbolName: "function", accessibilityDescription: nil))]
+            return [Item(
+                kind: .calc(result),
+                title: result,
+                subtitle: "Press Return to copy",
+                icon: NSImage(systemSymbolName: "function", accessibilityDescription: nil)
+            )]
         }
 
         if text.hasPrefix(":") {
             let command = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
-            return [Item(kind: .command(command), title: command.isEmpty ? "Run a command" : command, subtitle: "Run in a login shell", icon: NSImage(systemSymbolName: "terminal", accessibilityDescription: nil))]
+            return [Item(
+                kind: .command(command),
+                title: command.isEmpty ? "Run a command" : command,
+                subtitle: "Run in a login shell",
+                icon: NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
+            )]
         }
 
         if text.hasPrefix("/") || text.hasPrefix("~") {
@@ -244,24 +254,24 @@ final class Launcher: NSObject {
         let item = items[row]
 
         switch item.kind {
-        case .window(let id):
+        case let .window(id):
             close(restoreFocus: false)
             manager?.activate(id)
-        case .app(let url):
+        case let .app(url):
             close(restoreFocus: false)
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
-        case .command(let command):
+        case let .command(command):
             guard !command.isEmpty else { return }
             close(restoreFocus: true)
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/zsh")
             process.arguments = ["-lc", command]
             try? process.run()
-        case .calc(let result):
+        case let .calc(result):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(result, forType: .string)
             close(restoreFocus: true)
-        case .file(let url):
+        case let .file(url):
             var isDir: ObjCBool = false
             if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue, !url.path.hasSuffix(".app") {
                 field.stringValue = (url.path as NSString).abbreviatingWithTildeInPath + "/"
@@ -400,7 +410,7 @@ enum Calculator {
     }
 
     static func format(_ value: Double) -> String {
-        if value == value.rounded() && abs(value) < 1e15 { return String(Int64(value)) }
+        if value == value.rounded(), abs(value) < 1e15 { return String(Int64(value)) }
         return String(format: "%.10g", value)
     }
 
@@ -468,7 +478,7 @@ enum Calculator {
             while index < chars.count, chars[index].isNumber || chars[index] == "." {
                 index += 1
             }
-            return Double(String(chars[start..<index]))
+            return Double(String(chars[start ..< index]))
         }
     }
 }

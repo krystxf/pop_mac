@@ -1,0 +1,23 @@
+# SwiftFormat config. CI runs `swiftformat --lint .` with the version in .github/workflows/ci.yml.
+--swiftversion 6.0
+--exclude .build,build
+
+--indent 4
+--maxwidth 160
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--closingparen balanced
+--commas always
+--self remove
+--stripunusedargs closure-only
+--header ignore
+--importgrouping alpha
+--ifdef no-indent
+
+# Keep short bodies on one line, e.g. `guard ... else { return nil }`.
+--disable wrapIfStatementBodies,wrapPropertyBodies,wrapFunctionBodies,wrapLoopBodies
+# Group one-line members without blank lines between them.
+--disable blankLinesBetweenScopes
+# Tests unwrap known values with `!`, which fails the test clearly if it is nil.
+--disable noForceUnwrapInTests

@@ -35,7 +35,7 @@ final class MouseMonitor {
         let up = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
             MainActor.assumeIsolated { self?.mouseUp() }
         }
-        monitors = [down, drag, up].compactMap { $0 }
+        monitors = [down, drag, up].compactMap(\.self)
     }
 
     private func mouseDown() {
@@ -53,7 +53,7 @@ final class MouseMonitor {
             guard let frame = manager.windows[id]?.frame else { continue }
             let moved = abs(frame.x - rect.x) > 1 || abs(frame.y - rect.y) > 1
             let resized = abs(frame.width - rect.width) > 1 || abs(frame.height - rect.height) > 1
-            guard moved && !resized else { continue }
+            guard moved, !resized else { continue }
 
             dragged = id
             // Show where the window will land, like Pop Shell does after 200 ms.

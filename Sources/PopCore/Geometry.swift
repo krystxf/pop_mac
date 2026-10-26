@@ -157,7 +157,7 @@ public enum Geom {
         var nearest: (Double, Side) = left < right ? (left, .left) : (right, .right)
         if top < nearest.0 { nearest = (top, .top) }
         if bottom < nearest.0 { nearest = (bottom, .bottom) }
-        if allowCenter && center < nearest.0 { nearest = (center, .center) }
+        if allowCenter, center < nearest.0 { nearest = (center, .center) }
         return nearest
     }
 
@@ -194,7 +194,7 @@ public struct Movement: OptionSet {
         let xpos = from.x == change.x
         let ypos = from.y == change.y
 
-        if xpos && ypos {
+        if xpos, ypos {
             if from.width == change.width {
                 if from.height == change.height {
                     return .none

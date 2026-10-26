@@ -19,7 +19,7 @@ final class HotkeyManager {
 
     private static let modifierMask: UInt64 =
         CGEventFlags.maskCommand.rawValue | CGEventFlags.maskControl.rawValue
-        | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskShift.rawValue
+            | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskShift.rawValue
 
     init() {
         installTap()
