@@ -10,10 +10,10 @@ final class ManagedWindow {
     let app: NSRunningApplication
     let appElement: AXUIElement
 
-    init(id: WindowID, element: AXUIElement, app: NSRunningApplication, appElement: AXUIElement) {
+    init(id: WindowID, element: AXUIElement, app: NSRunningApplication, pid: pid_t, appElement: AXUIElement) {
         self.id = id
         self.element = element
-        pid = app.processIdentifier
+        self.pid = pid
         self.app = app
         self.appElement = appElement
     }

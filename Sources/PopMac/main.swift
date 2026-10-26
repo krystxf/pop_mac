@@ -17,11 +17,12 @@ func diagnose() {
     }
     if AX.isTrusted(prompt: false) {
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
-            let element = AXUIElementCreateApplication(app.processIdentifier)
+            guard let pid = Processes.pid(of: app) else { continue }
+            let element = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(element, 1.0)
             for windowElement in AX.elements(element, kAXWindowsAttribute) {
                 guard let id = AX.windowID(windowElement) else { continue }
-                let window = ManagedWindow(id: id, element: windowElement, app: app, appElement: element)
+                let window = ManagedWindow(id: id, element: windowElement, app: app, pid: pid, appElement: element)
                 print(
                     "  [\(id)] \(window.appName) “\(window.title)” standard=\(window.isStandard) resizable=\(window.isResizable) frame=\(window.frame.map { "\($0)" } ?? "-") space=\(Spaces.space(of: id).map(String.init) ?? "?")"
                 )

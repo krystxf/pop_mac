@@ -106,7 +106,9 @@ final class WindowManager {
         }
         center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            MainActor.assumeIsolated { self?.removeApp(app.processIdentifier) }
+            MainActor.assumeIsolated {
+                if let pid = Processes.pid(of: app) { self?.removeApp(pid) }
+            }
         }
         center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -201,12 +203,11 @@ final class WindowManager {
     // MARK: - Applications
 
     private func addApp(_ app: NSRunningApplication, attempt: Int = 0) {
-        let pid = app.processIdentifier
-        guard observers[pid] == nil, pid != ProcessInfo.processInfo.processIdentifier,
+        guard let pid = Processes.pid(of: app), observers[pid] == nil, pid != ProcessInfo.processInfo.processIdentifier,
               app.activationPolicy == .regular, !app.isTerminated
         else { return }
 
-        guard let observer = AppObserver(app: app, handler: { [weak self] observer, event in
+        guard let observer = AppObserver(app: app, pid: pid, handler: { [weak self] observer, event in
             MainActor.assumeIsolated { self?.handle(observer, event) }
         }) else {
             // A launching app may not answer Accessibility requests yet.
@@ -241,7 +242,7 @@ final class WindowManager {
         guard let id = AX.windowID(element) else { return nil }
         if let existing = windows[id] { return existing }
 
-        let window = ManagedWindow(id: id, element: element, app: observer.app, appElement: observer.element)
+        let window = ManagedWindow(id: id, element: element, app: observer.app, pid: observer.pid, appElement: observer.element)
         // Minimized windows report the dialog subrole until they are restored.
         guard window.isStandard || (window.role == kAXWindowRole && window.isMinimized) else { return nil }
 
@@ -260,15 +261,16 @@ final class WindowManager {
 
     func focusedWindow() -> ManagedWindow? {
         guard let app = NSWorkspace.shared.frontmostApplication,
-              let observer = observers[app.processIdentifier],
+              let pid = Processes.pid(of: app),
+              let observer = observers[pid],
               let element = observer.focusedWindow()
         else { return nil }
-        if let id = lookup(element, pid: app.processIdentifier) { return windows[id] }
+        if let id = lookup(element, pid: pid) { return windows[id] }
         return register(element, observer)
     }
 
     private func handle(_ observer: AppObserver, _ event: AXEvent) {
-        let pid = observer.app.processIdentifier
+        let pid = observer.pid
 
         switch event {
         case let .windowCreated(element):
@@ -287,7 +289,7 @@ final class WindowManager {
                 id = window.id
                 autoTileIfNeeded(window.id)
             }
-            if let id, let window = windows[id], NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+            if let id, let window = windows[id], NSWorkspace.shared.frontmostApplication.flatMap(Processes.pid(of:)) == pid {
                 onFocused(window)
             }
 

@@ -17,6 +17,7 @@ enum AXEvent {
 /// Watches one application for window events.
 final class AppObserver {
     let app: NSRunningApplication
+    let pid: pid_t
     let element: AXUIElement
     private var observer: AXObserver?
     private let handler: (AppObserver, AXEvent) -> Void
@@ -36,9 +37,10 @@ final class AppObserver {
         kAXWindowResizedNotification,
     ]
 
-    init?(app: NSRunningApplication, handler: @escaping (AppObserver, AXEvent) -> Void) {
+    init?(app: NSRunningApplication, pid: pid_t, handler: @escaping (AppObserver, AXEvent) -> Void) {
         self.app = app
-        element = AXUIElementCreateApplication(app.processIdentifier)
+        self.pid = pid
+        element = AXUIElementCreateApplication(pid)
         self.handler = handler
 
         AXUIElementSetMessagingTimeout(element, 1.0)
@@ -49,7 +51,7 @@ final class AppObserver {
             let this = Unmanaged<AppObserver>.fromOpaque(refcon).takeUnretainedValue()
             this.dispatch(element, notification as String)
         }
-        guard AXObserverCreate(app.processIdentifier, callback, &observer) == .success, let observer else {
+        guard AXObserverCreate(pid, callback, &observer) == .success, let observer else {
             return nil
         }
         self.observer = observer
