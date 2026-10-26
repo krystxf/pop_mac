@@ -85,6 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         manager.start()
         updateIcon()
         watchConfig()
+
+        // For development: save images of the settings pages.
+        if let folder = ProcessInfo.processInfo.environment["POP_MAC_SNAPSHOT_DIR"] {
+            settingsWindow.snapshotPages(manager: manager, to: URL(fileURLWithPath: folder))
+        }
     }
 
     private func updateIcon() {

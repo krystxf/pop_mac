@@ -63,8 +63,52 @@ final class SettingsModel: ObservableObject {
     }
 }
 
-enum SettingsTab: Hashable {
+// MARK: - Window
+
+enum SettingsTab: String, CaseIterable, Identifiable {
     case general, layout, appearance, shortcuts, floating
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .layout: "Layout"
+        case .appearance: "Appearance"
+        case .shortcuts: "Shortcuts"
+        case .floating: "Floating Windows"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .general: "How Pop Mac starts and follows your focus."
+        case .layout: "Gaps between tiles, and how wide a tile can get."
+        case .appearance: "The highlight that shows where a window will go."
+        case .shortcuts: "The keys behind Super and Primary, and every shortcut."
+        case .floating: "Rules for windows that float instead of tile."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape.fill"
+        case .layout: "rectangle.split.3x1.fill"
+        case .appearance: "paintpalette.fill"
+        case .shortcuts: "keyboard.fill"
+        case .floating: "macwindow.on.rectangle"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .general: .gray
+        case .layout: .orange
+        case .appearance: .pink
+        case .shortcuts: .blue
+        case .floating: .teal
+        }
+    }
 }
 
 /// The settings window, which hosts `SettingsView`.
@@ -72,17 +116,34 @@ enum SettingsTab: Hashable {
 final class SettingsWindowController {
     private var window: NSWindow?
     private var model: SettingsModel?
-    private var selection = SettingsTabSelection()
+    private let selection = SettingsTabSelection()
 
     func show(manager: WindowManager, tab: SettingsTab? = nil) {
         if let tab { selection.tab = tab }
         if window == nil {
             let model = SettingsModel(manager: manager)
-            let host = NSHostingController(rootView: SettingsView(model: model, selection: selection))
-            let window = NSWindow(contentViewController: host)
+
+            // An AppKit sidebar item gets the floating Liquid Glass sidebar on macOS 26.
+            let split = NSSplitViewController()
+            let sidebar = NSSplitViewItem(sidebarWithViewController: NSHostingController(rootView: SettingsSidebar(selection: selection)))
+            sidebar.minimumThickness = 200
+            sidebar.maximumThickness = 240
+            sidebar.canCollapse = false
+            let detail = NSSplitViewItem(viewController: NSHostingController(rootView: SettingsDetail(model: model, selection: selection)))
+            detail.minimumThickness = 480
+            split.addSplitViewItem(sidebar)
+            split.addSplitViewItem(detail)
+
+            let window = NSWindow(contentViewController: split)
             window.title = "Pop Mac Settings"
-            window.styleMask = [.titled, .closable]
+            window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            // An empty unified toolbar places the traffic lights over the sidebar, like System Settings.
+            window.toolbar = NSToolbar(identifier: "settings")
+            window.toolbarStyle = .unified
             window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 780, height: 580))
             window.center()
             self.window = window
             self.model = model
@@ -96,37 +157,172 @@ final class SettingsWindowController {
     func refresh() {
         model?.refresh()
     }
+
+    /// Saves an image of every page into a folder, for development.
+    func snapshotPages(manager: WindowManager, to folder: URL) {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for (index, tab) in SettingsTab.allCases.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 1.2) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.show(manager: manager, tab: tab)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        MainActor.assumeIsolated {
+                            guard let window = self?.window else { return }
+                            let url = folder.appendingPathComponent("settings-\(tab.rawValue).png")
+                            Log.info(Snapshots.save(window, to: url) ? "saved \(url.path)" : "could not save \(url.path)")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-/// The selected tab, shared between the window controller and the view.
+/// The selected page, shared between the window controller and the view.
 @MainActor
 final class SettingsTabSelection: ObservableObject {
     @Published var tab: SettingsTab = .general
 }
 
-struct SettingsView: View {
+/// The list of pages on the left.
+private struct SettingsSidebar: View {
+    @ObservedObject var selection: SettingsTabSelection
+
+    var body: some View {
+        List(SettingsTab.allCases, selection: Binding(get: { selection.tab }, set: { if let tab = $0 { selection.tab = tab } })) { tab in
+            Label {
+                Text(tab.title)
+            } icon: {
+                SettingsIcon(tab: tab, size: 22)
+            }
+            .tag(tab)
+        }
+        .listStyle(.sidebar)
+    }
+}
+
+/// The selected page on the right.
+private struct SettingsDetail: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var selection: SettingsTabSelection
 
     var body: some View {
-        TabView(selection: $selection.tab) {
-            GeneralSettings(model: model)
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(SettingsTab.general)
-            LayoutSettings(model: model)
-                .tabItem { Label("Layout", systemImage: "rectangle.split.3x1") }
-                .tag(SettingsTab.layout)
-            AppearanceSettings(model: model)
-                .tabItem { Label("Appearance", systemImage: "paintpalette") }
-                .tag(SettingsTab.appearance)
-            ShortcutSettings(model: model)
-                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
-                .tag(SettingsTab.shortcuts)
-            FloatingSettings(model: model)
-                .tabItem { Label("Floating", systemImage: "macwindow.on.rectangle") }
-                .tag(SettingsTab.floating)
+        SettingsPage(tab: selection.tab) {
+            switch selection.tab {
+            case .general: GeneralSettings(model: model)
+            case .layout: LayoutSettings(model: model)
+            case .appearance: AppearanceSettings(model: model)
+            case .shortcuts: ShortcutSettings(model: model)
+            case .floating: FloatingSettings(model: model)
+            }
         }
-        .frame(width: 560, height: 500)
+        .frame(minWidth: 480, minHeight: 520)
+    }
+}
+
+/// A page: a glass header card, then the page's settings.
+private struct SettingsPage<Content: View>: View {
+    let tab: SettingsTab
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                SettingsIcon(tab: tab, size: 42)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(tab.title).font(.title2.weight(.semibold))
+                    Text(tab.subtitle).font(.callout).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(16)
+            .glassCard(cornerRadius: 20, tint: tab.color)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            content
+        }
+    }
+}
+
+/// A white symbol on a colored rounded square, like the icons in System Settings.
+private struct SettingsIcon: View {
+    let tab: SettingsTab
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: tab.symbol)
+            .font(.system(size: size * 0.5, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(
+                RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+                    .fill(tab.color.gradient)
+            )
+    }
+}
+
+// MARK: - Liquid Glass
+
+private extension View {
+    /// Liquid Glass on macOS 26 and later, the regular material before.
+    @ViewBuilder
+    func glassCard(cornerRadius: CGFloat, tint: Color? = nil) -> some View {
+        if #available(macOS 26, *) {
+            glassEffect(tint.map { .regular.tint($0.opacity(0.18)) } ?? .regular, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+    }
+
+    /// A Liquid Glass button on macOS 26 and later, a bordered button before.
+    @ViewBuilder
+    func glassButton(prominent: Bool = false) -> some View {
+        if #available(macOS 26, *) {
+            if prominent {
+                buttonStyle(.glassProminent)
+            } else {
+                buttonStyle(.glass)
+            }
+        } else if prominent {
+            buttonStyle(.borderedProminent)
+        } else {
+            buttonStyle(.bordered)
+        }
+    }
+}
+
+/// A standard slider with its current value after it.
+private struct ValueSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    var unit = "pt"
+
+    var body: some View {
+        HStack {
+            // Rounds to whole steps; a stepped slider would draw a tick mark per step.
+            Slider(value: Binding(get: { value }, set: { value = ($0 / step).rounded() * step }), in: range) {
+                Text(title)
+            }
+            Text("\(Int(value)) \(unit)")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 52, alignment: .trailing)
+        }
+    }
+}
+
+private struct Footnote: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text).font(.caption).foregroundStyle(.secondary)
     }
 }
 
@@ -154,20 +350,19 @@ private struct GeneralSettings: View {
                 }
                 .disabled(!model.settings.mouseCursorFollowsActiveWindow)
             } footer: {
-                Text("Applies when you move focus or windows with the keyboard, and when you pick a window in the launcher.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Footnote("Applies when you move focus or windows with the keyboard, and when you pick a window in the launcher.")
             }
 
             Section {
                 Toggle("Snap floating windows to the grid", isOn: model.binding(\.snapToGrid))
             } footer: {
-                Text("When tiling is off, windows you drop snap to a grid of \(Int(model.settings.columnSize)) × \(Int(model.settings.rowSize)) points.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Footnote("When tiling is off, windows you drop snap to a grid of \(Int(model.settings.columnSize)) × \(Int(model.settings.rowSize)) points.")
             }
 
             Section {
                 LabeledContent("Config file") {
                     Button("Open") { model.openConfigFile() }
+                        .glassButton()
                 }
             } footer: {
                 Text(PopCore.Settings.defaultURL.path(percentEncoded: false))
@@ -198,16 +393,13 @@ private struct LayoutSettings: View {
     var body: some View {
         Form {
             Section {
-                Stepper(value: model.binding(\.gapInner), in: 0 ... 64, step: 2) {
-                    LabeledContent("Gap between windows", value: "\(Int(model.settings.gapInner)) pt")
-                }
-                Stepper(value: model.binding(\.gapOuter), in: 0 ... 64, step: 2) {
-                    LabeledContent("Gap at the screen edges", value: "\(Int(model.settings.gapOuter)) pt")
-                }
+                ValueSlider(title: "Gap between windows", value: model.binding(\.gapInner), range: 0 ... 48, step: 1)
+                ValueSlider(title: "Gap at the screen edges", value: model.binding(\.gapOuter), range: 0 ... 48, step: 1)
                 Toggle("Smart gaps", isOn: model.binding(\.smartGaps))
+            } header: {
+                Text("Gaps")
             } footer: {
-                Text("Smart gaps remove the gap at the screen edges when a display shows only one window.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Footnote("Your windows follow the sliders as you drag. Smart gaps remove the gap at the screen edges when a display shows only one window.")
             }
 
             Section {
@@ -216,13 +408,12 @@ private struct LayoutSettings: View {
                     set: { enabled in model.update { $0.maxWindowWidth = enabled ? 1600 : 0 } }
                 ))
                 if model.settings.maxWindowWidth > 0 {
-                    Stepper(value: model.binding(\.maxWindowWidth), in: 400 ... 4000, step: 100) {
-                        LabeledContent("Maximum width", value: "\(Int(model.settings.maxWindowWidth)) pt")
-                    }
+                    ValueSlider(title: "Maximum width", value: model.binding(\.maxWindowWidth), range: 600 ... 4000, step: 50)
                 }
+            } header: {
+                Text("Width")
             } footer: {
-                Text("A wider tile centers its window. Useful on ultrawide displays.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Footnote("A wider tile centers its window. Useful on ultrawide displays.")
             }
         }
         .formStyle(.grouped)
@@ -239,14 +430,20 @@ private struct AppearanceSettings: View {
         ("Purple", "#A77BF3"), ("Pink", "#F06EAA"), ("Red", "#EF5B5B"), ("Graphite", "#8E8E93"),
     ]
 
-    private var color: NSColor {
+    private var color: Color {
         let value = model.settings.overlayColor
-        if value == "accent" { return .controlAccentColor }
-        return NSColor(hex: value) ?? .orange
+        if value == "accent" { return Color(nsColor: .controlAccentColor) }
+        return Color(nsColor: NSColor(hex: value) ?? .orange)
     }
 
     var body: some View {
         Form {
+            Section("Preview") {
+                OverlayPreview(color: color, radius: model.settings.overlayBorderRadius)
+                    .frame(height: 170)
+                    .listRowInsets(EdgeInsets())
+            }
+
             Section {
                 Toggle("Use the system accent color", isOn: Binding(
                     get: { model.settings.overlayColor == "accent" },
@@ -254,46 +451,87 @@ private struct AppearanceSettings: View {
                 ))
 
                 if model.settings.overlayColor != "accent" {
-                    ColorPicker("Highlight color", selection: Binding(
-                        get: { Color(nsColor: color) },
+                    ColorPicker("Custom color", selection: Binding(
+                        get: { color },
                         set: { newColor in model.update { $0.overlayColor = NSColor(newColor).hexString } }
                     ), supportsOpacity: false)
 
                     LabeledContent("Presets") {
-                        HStack(spacing: 6) {
-                            ForEach(Self.presets, id: \.1) { name, hex in
-                                Button {
-                                    model.update { $0.overlayColor = hex }
-                                } label: {
-                                    Circle().fill(Color(nsColor: NSColor(hex: hex) ?? .gray)).frame(width: 18, height: 18)
-                                }
-                                .buttonStyle(.plain)
-                                .help(name)
-                            }
-                        }
+                        presetButtons
                     }
                 }
+            } header: {
+                Text("Highlight color")
             } footer: {
-                Text("The highlight shows where a window will go in tile mode and while you drag it.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section("Preview") {
-                HStack {
-                    Spacer()
-                    RoundedRectangle(cornerRadius: model.settings.overlayBorderRadius)
-                        .fill(Color(nsColor: color).opacity(0.25))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: model.settings.overlayBorderRadius)
-                                .stroke(Color(nsColor: color), lineWidth: 3)
-                        )
-                        .frame(width: 220, height: 110)
-                    Spacer()
-                }
-                .padding(.vertical, 6)
+                Footnote("The highlight shows where a window will go in tile mode and while you drag it.")
             }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private var presetButtons: some View {
+        let buttons = HStack(spacing: 6) {
+            ForEach(Self.presets, id: \.1) { name, hex in
+                let selected = model.settings.overlayColor.caseInsensitiveCompare(hex) == .orderedSame
+                Button {
+                    model.update { $0.overlayColor = hex }
+                } label: {
+                    Circle()
+                        .fill(Color(nsColor: NSColor(hex: hex) ?? .gray).gradient)
+                        .frame(width: 16, height: 16)
+                        .overlay(Circle().stroke(.white, lineWidth: selected ? 2 : 0))
+                }
+                .glassButton()
+                .help(name)
+            }
+        }
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: 6) { buttons }
+        } else {
+            buttons
+        }
+    }
+}
+
+/// Two windows on a desktop, with the highlight over the right one.
+private struct OverlayPreview: View {
+    let color: Color
+    let radius: Double
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(nsColor: .systemIndigo).opacity(0.55), Color(nsColor: .systemTeal).opacity(0.45)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            HStack(spacing: 10) {
+                window
+                window.overlay(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(color.opacity(0.25))
+                        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(color, lineWidth: 3))
+                )
+            }
+            .padding(18)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(10)
+    }
+
+    private var window: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                ForEach([Color.red, .yellow, .green], id: \.self) { Circle().fill($0.opacity(0.8)).frame(width: 7, height: 7) }
+                Spacer()
+            }
+            .padding(7)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .glassCard(cornerRadius: 10)
     }
 }
 
@@ -327,9 +565,10 @@ private struct ShortcutSettings: View {
                     Text("Super and Primary share a key, so some shortcuts collide.")
                         .font(.caption).foregroundStyle(.orange)
                 }
+            } header: {
+                Text("Modifier keys")
             } footer: {
-                Text("Pop Shell's shortcuts use Super and Primary. A Mac keyboard has no Super key, so pick the keys they stand for.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Footnote("Pop Shell's shortcuts use Super and Primary. A Mac keyboard has no Super key, so pick the keys they stand for.")
             }
 
             Section("Shortcuts") {
@@ -342,10 +581,10 @@ private struct ShortcutSettings: View {
                 Text("Tile mode")
             } footer: {
                 HStack {
-                    Text("To change a shortcut, edit `keybindings` in the config file.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Footnote("To change a shortcut, edit `keybindings` in the config file.")
                     Spacer()
                     Button("Open Config File") { model.openConfigFile() }
+                        .glassButton()
                 }
             }
         }
@@ -355,9 +594,18 @@ private struct ShortcutSettings: View {
     private func row(_ action: Action) -> some View {
         let combos = model.settings.combos(for: action).map(\.description)
         return LabeledContent(action.summary) {
-            Text(combos.isEmpty ? "None" : combos.joined(separator: "  "))
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(combos.isEmpty ? .tertiary : .secondary)
+            HStack(spacing: 4) {
+                if combos.isEmpty {
+                    Text("None").foregroundStyle(.tertiary)
+                }
+                ForEach(combos, id: \.self) { combo in
+                    Text(combo)
+                        .font(.system(.callout, design: .rounded).weight(.medium))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .glassCard(cornerRadius: 6)
+                }
+            }
         }
     }
 }
@@ -397,6 +645,9 @@ private struct FloatingSettings: View {
                 }
                 ForEach(Array(model.settings.floatRules.enumerated()), id: \.offset) { index, rule in
                     HStack {
+                        Image(systemName: rule.disabled == true ? "rectangle.split.2x1" : "macwindow.on.rectangle")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(describe(rule))
                             Text(rule.disabled == true ? "Tiles" : "Floats").font(.caption).foregroundStyle(.secondary)
@@ -407,15 +658,14 @@ private struct FloatingSettings: View {
                         } label: {
                             Image(systemName: "trash")
                         }
-                        .buttonStyle(.borderless)
+                        .glassButton()
                         .help("Remove this rule")
                     }
                 }
             } header: {
                 Text("Rules")
             } footer: {
-                Text("The first matching rule wins. ⌃⌥G floats or tiles a single window.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Footnote("The first matching rule wins. ⌃⌥G floats or tiles a single window.")
             }
 
             Section {
@@ -434,13 +684,13 @@ private struct FloatingSettings: View {
                         title = ""
                         tileInstead = false
                     }
+                    .glassButton(prominent: true)
                     .disabled(problem != nil)
                 }
             } header: {
                 Text("New rule")
             } footer: {
-                Text("Both fields are case-insensitive regular expressions. `Slack` also matches “Slack Beta”; use `^Slack$` for an exact match.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Footnote("Both fields are case-insensitive regular expressions. Slack also matches “Slack Beta”; use ^Slack$ for an exact match.")
             }
         }
         .formStyle(.grouped)

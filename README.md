@@ -197,6 +197,7 @@ POP_MAC_DEBUG=1 build/PopMac.app/Contents/MacOS/PopMac   # verbose log on stderr
 POP_MAC_SHOW_WELCOME=1 build/PopMac.app/Contents/MacOS/PopMac   # show the first-run window
 kill -USR1 "$(pgrep -f PopMac.app/Contents/MacOS/PopMac)"   # write the tiling tree to the log
 swift scripts/make-icon.swift   # redraw Resources/AppIcon.icns
+POP_MAC_SNAPSHOT_DIR=/tmp/shots build/PopMac.app/Contents/MacOS/PopMac   # save images of the settings pages
 ```
 
 CI runs on every push and pull request. It checks the formatting with SwiftFormat, lints the

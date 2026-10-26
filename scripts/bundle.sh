@@ -19,6 +19,11 @@ BIN="$(swift build ${FLAGS[@]+"${FLAGS[@]}"} -c "$CONFIG" --show-bin-path)/PopMa
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/PopMac"
+# SwiftPM records the deployment target as the SDK version. macOS then runs the
+# app in compatibility mode, without the current design (Liquid Glass).
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+MIN_VERSION="$(otool -l "$APP/Contents/MacOS/PopMac" | awk '/LC_BUILD_VERSION/ { found = 1 } found && $1 == "minos" { print $2; exit }')"
+vtool -set-build-version macos "$MIN_VERSION" "$SDK_VERSION" -replace -output "$APP/Contents/MacOS/PopMac" "$APP/Contents/MacOS/PopMac"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
