@@ -14,7 +14,7 @@ Pop Shell's window stacking is not included.
 | Tile mode (Super + Return): move, resize, swap, orientation | Same, including the grid overlay for floating windows |
 | Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows. |
 | Resize a tiled window with the mouse | Same. The neighbors follow. |
-| Toggle floating (Super + G) | Same. Every standard window tiles; only windows you float with Super + G float. Floating window exceptions are not included. |
+| Toggle floating (Super + G), floating window exceptions | Same. Every standard window tiles, unless you float it with Super + G or a rule in `floatRules` matches it. |
 | Toggle auto-tiling (Super + Y) | Same. Windows return to their original frames. |
 | Move window to another display | Same |
 | Move window to another workspace | Moves the window to the previous or next Space (see limitations) |
@@ -110,13 +110,27 @@ The menu bar item **Edit Config File…** opens it. Missing keys use their defau
   "keybindings": {
     "focus-left": ["<Super>Left", "<Super>h"],
     "tile-move-left-global": ["<Super><Shift>Left"]
-  }
+  },
+  "floatRules": [
+    { "app": "^com\\.apple\\.calculator$" },
+    { "app": "Slack", "title": "Huddle" },
+    { "app": "Finder", "title": "^Applications$", "disabled": true },
+    { "app": "Finder" }
+  ]
 }
 ```
 
 - `keybindings` uses Pop Shell's action names and key syntax.
   Modifiers are `<Super>`, `<Primary>`, `<Shift>`, `<Control>`, `<Alt>` (Option), and `<Cmd>`.
   A binding replaces all default keys of its action. An empty list disables the action.
+- `floatRules` make matching windows float instead of tile. The first matching rule wins.
+  - `app` matches the app name (`Calculator`) or the bundle id (`com.apple.calculator`).
+  - `title` matches the window title.
+  - Both are case-insensitive regular expressions, so `Slack` also matches `Slack Beta`. Use `^…$` for an exact match.
+  - A rule with both `app` and `title` needs both to match.
+  - `"disabled": true` makes matching windows tile. Put it before a broader rule to make an exception to it.
+  - ⌃⌥G on a window that a rule floats makes it tile anyway, until Pop Mac restarts.
+  - Pop Mac applies rule changes as soon as you save the file.
 - `overlayColor` is the highlight color for tile mode and drop previews: `#RRGGBB`, or `accent` for the system accent color.
   The menu bar item **Highlight Color** sets it too, with presets and a color picker.
 - `mouseCursorFocusLocation` is one of `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.

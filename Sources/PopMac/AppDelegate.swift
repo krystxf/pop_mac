@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let shortcuts = ShortcutsWindow()
     private var permissionTimer: Timer?
     private var configWatcher: DispatchSourceFileSystemObject?
+    private var fileWatcher: DispatchSourceFileSystemObject?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -258,6 +259,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Config file
 
     /// Reloads the settings when the config file changes on disk.
+    ///
+    /// Editors save in two ways: some replace the file, which changes the
+    /// folder; others write into the file. Both are watched.
     private func watchConfig() {
         let url = Settings.defaultURL
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -267,14 +271,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename], queue: .main)
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let manager = self.manager,
-                      let settings = try? Settings.load(), settings != manager.settings
-                else { return }
-                manager.reload(settings)
+                self?.reloadConfigIfChanged()
+                // The file may have been replaced; watch the new one.
+                self?.watchConfigFile()
             }
         }
         source.setCancelHandler { close(fd) }
         source.resume()
         configWatcher = source
+        watchConfigFile()
+    }
+
+    private func watchConfigFile() {
+        fileWatcher?.cancel()
+        fileWatcher = nil
+        let fd = open(Settings.defaultURL.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .delete, .rename], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.reloadConfigIfChanged() }
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        fileWatcher = source
+    }
+
+    private func reloadConfigIfChanged() {
+        guard let manager, let settings = try? Settings.load(), settings != manager.settings else { return }
+        Log.info("config file changed; reloading")
+        manager.reload(settings)
     }
 }

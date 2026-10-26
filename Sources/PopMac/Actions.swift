@@ -110,7 +110,16 @@ extension WindowManager {
         guard let focused = focusedWindow(), let autoTiler else { return }
         let id = focused.id
 
-        if floating.contains(id) {
+        if matchesFloatRule(focused) {
+            // The window floats by a rule. Toggling makes it tile anyway, or float again.
+            if forceTile.contains(id) {
+                forceTile.remove(id)
+                autoTiler.detachWindow(id)
+            } else {
+                forceTile.insert(id)
+                autoTiler.autoTile(id)
+            }
+        } else if floating.contains(id) {
             floating.remove(id)
             autoTiler.autoTile(id)
         } else if autoTiler.isAttached(id) {

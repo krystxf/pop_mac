@@ -16,6 +16,8 @@ final class WindowManager {
 
     /// Windows that the user made float with toggle-floating.
     var floating = Set<WindowID>()
+    /// Windows that match a float rule, but that the user made tile with toggle-floating.
+    var forceTile = Set<WindowID>()
     /// Maximized windows, with their frame before maximizing.
     var maximized: [WindowID: Rect] = [:]
     /// The two most recently focused windows: [older, newer].
@@ -152,6 +154,16 @@ final class WindowManager {
             || settings.smartGaps != old.smartGaps || settings.maxWindowWidth != old.maxWindowWidth {
             autoTiler.forest.gapInner = settings.gapInner
             retileAll()
+        }
+        if settings.floatRules != old.floatRules, let autoTiler {
+            // Windows that now match a rule float, back at their frame from before tiling.
+            for id in Array(autoTiler.attached.keys) where !forceTile.contains(id) {
+                if let window = windows[id], matchesFloatRule(window) {
+                    autoTiler.detachWindow(id)
+                }
+            }
+            // Windows that no longer match get tiled.
+            scanVisibleWindows()
         }
         onStateChange?()
     }
@@ -414,6 +426,7 @@ final class WindowManager {
         lastSet.removeValue(forKey: id)
         lastApplied.removeValue(forKey: id)
         floating.remove(id)
+        forceTile.remove(id)
         maximized.removeValue(forKey: id)
         prevRect.removeValue(forKey: id)
         minimizedAttachments.removeValue(forKey: id)
@@ -552,7 +565,15 @@ final class WindowManager {
     func isTilable(_ id: WindowID) -> Bool {
         guard let window = windows[id], !floating.contains(id) else { return false }
         guard window.isStandard, !window.isMinimized, !window.isFullscreen, !window.isHidden else { return false }
+        if matchesFloatRule(window) {
+            return forceTile.contains(id)
+        }
         return window.isResizable
+    }
+
+    /// True if the window matches a float rule in the config.
+    func matchesFloatRule(_ window: ManagedWindow) -> Bool {
+        FloatRules.windowShallFloat(appName: window.appName, bundleID: window.bundleID, title: window.title, userRules: settings.floatRules)
     }
 
     func autoTileOn() {

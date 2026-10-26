@@ -29,6 +29,27 @@ import Testing
         #expect(KeyCombo.parse("Escape", superModifiers: [], primaryModifiers: [])?.modifiers.isEmpty == true)
     }
 
+    @Test func floatRulesMatch() {
+        #expect(!FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "Calculator", userRules: []))
+        let byApp = [FloatRule(app: "Terminal")]
+        #expect(FloatRules.windowShallFloat(appName: "Terminal", bundleID: "com.apple.Terminal", title: "zsh", userRules: byApp))
+        let byBundle = [FloatRule(app: "^com\\.apple\\.calculator$")]
+        #expect(FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "", userRules: byBundle))
+        let byTitle = [FloatRule(app: "Slack", title: "huddle")]
+        #expect(FloatRules.windowShallFloat(appName: "Slack", bundleID: "com.tinyspeck.slackmacgap", title: "Huddle with Ana", userRules: byTitle))
+        #expect(!FloatRules.windowShallFloat(appName: "Slack", bundleID: "com.tinyspeck.slackmacgap", title: "general", userRules: byTitle))
+        // An earlier disabled rule wins over a later matching rule.
+        let override = [FloatRule(app: "Finder", title: "Applications", disabled: true), FloatRule(app: "Finder")]
+        #expect(!FloatRules.windowShallFloat(appName: "Finder", bundleID: "com.apple.finder", title: "Applications", userRules: override))
+        #expect(FloatRules.windowShallFloat(appName: "Finder", bundleID: "com.apple.finder", title: "Downloads", userRules: override))
+    }
+
+    @Test func settingsDecodeFloatRules() throws {
+        let json = #"{"floatRules": [{"app": "Calculator"}, {"title": "Picture in Picture", "disabled": false}]}"#
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+        #expect(settings.floatRules == [FloatRule(app: "Calculator"), FloatRule(title: "Picture in Picture", disabled: false)])
+    }
+
     @Test func settingsDecodeWithDefaults() throws {
         let json = #"{"gapInner": 4, "keybindings": {"focus-left": ["<Super>a"]}}"#
         let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
