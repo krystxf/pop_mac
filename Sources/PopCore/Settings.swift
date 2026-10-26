@@ -95,7 +95,6 @@ public enum Action: String, CaseIterable, Codable {
     case tileOrientation = "tile-orientation"
     case toggleFloating = "toggle-floating"
     case toggleTiling = "toggle-tiling"
-    case toggleStackingGlobal = "toggle-stacking-global"
     case tileMoveLeftGlobal = "tile-move-left-global"
     case tileMoveDownGlobal = "tile-move-down-global"
     case tileMoveUpGlobal = "tile-move-up-global"
@@ -112,7 +111,6 @@ public enum Action: String, CaseIterable, Codable {
 
     // Tile (management) mode
     case managementOrientation = "management-orientation"
-    case toggleStacking = "toggle-stacking"
     case tileMoveLeft = "tile-move-left"
     case tileMoveDown = "tile-move-down"
     case tileMoveUp = "tile-move-up"
@@ -131,7 +129,7 @@ public enum Action: String, CaseIterable, Codable {
     /// True for bindings that only work inside tile mode.
     public var isTileMode: Bool {
         switch self {
-        case .managementOrientation, .toggleStacking,
+        case .managementOrientation,
              .tileMoveLeft, .tileMoveDown, .tileMoveUp, .tileMoveRight,
              .tileResizeLeft, .tileResizeDown, .tileResizeUp, .tileResizeRight,
              .tileSwapLeft, .tileSwapDown, .tileSwapUp, .tileSwapRight,
@@ -153,7 +151,6 @@ public enum Action: String, CaseIterable, Codable {
         case .tileOrientation: return "Toggle tiling orientation"
         case .toggleFloating: return "Toggle floating mode for the window"
         case .toggleTiling: return "Toggle auto-tiling"
-        case .toggleStackingGlobal: return "Toggle stacking for the window"
         case .tileMoveLeftGlobal: return "Move window left"
         case .tileMoveDownGlobal: return "Move window down"
         case .tileMoveUpGlobal: return "Move window up"
@@ -168,7 +165,6 @@ public enum Action: String, CaseIterable, Codable {
         case .closeWindow: return "Close window"
         case .minimizeWindow: return "Minimize window"
         case .managementOrientation: return "Toggle orientation"
-        case .toggleStacking: return "Toggle stacking"
         case .tileMoveLeft: return "Move window left"
         case .tileMoveDown: return "Move window down"
         case .tileMoveUp: return "Move window up"
@@ -196,7 +192,6 @@ public enum Action: String, CaseIterable, Codable {
         .tileOrientation: ["<Super>o"],
         .toggleFloating: ["<Super>g"],
         .toggleTiling: ["<Super>y"],
-        .toggleStackingGlobal: ["<Super>s"],
         .tileMoveLeftGlobal: [],
         .tileMoveDownGlobal: [],
         .tileMoveUpGlobal: [],
@@ -212,7 +207,6 @@ public enum Action: String, CaseIterable, Codable {
         .minimizeWindow: ["<Super>comma"],
 
         .managementOrientation: ["o"],
-        .toggleStacking: ["s"],
         .tileMoveLeft: ["Left", "h"],
         .tileMoveDown: ["Down", "j"],
         .tileMoveUp: ["Up", "k"],
@@ -261,14 +255,12 @@ public struct Settings: Codable, Equatable {
     public var gapOuter: Double = 8
     public var smartGaps = false
     public var snapToGrid = false
-    public var stackingWithMouse = true
     public var mouseCursorFollowsActiveWindow = true
     public var mouseCursorFocusLocation: FocusLocation = .center
     public var columnSize: Double = 64
     public var rowSize: Double = 64
     /// Maximum width of tiled windows in points. Zero disables the limit.
     public var maxWindowWidth: Double = 0
-    public var showStackTabs = true
     public var logOnFocus = false
     /// The modifiers that `<Super>` stands for.
     public var superModifiers: [MacModifier] = [.control, .option]
@@ -293,13 +285,11 @@ public struct Settings: Codable, Equatable {
         gapOuter = try c.decodeIfPresent(Double.self, forKey: .gapOuter) ?? d.gapOuter
         smartGaps = try c.decodeIfPresent(Bool.self, forKey: .smartGaps) ?? d.smartGaps
         snapToGrid = try c.decodeIfPresent(Bool.self, forKey: .snapToGrid) ?? d.snapToGrid
-        stackingWithMouse = try c.decodeIfPresent(Bool.self, forKey: .stackingWithMouse) ?? d.stackingWithMouse
         mouseCursorFollowsActiveWindow = try c.decodeIfPresent(Bool.self, forKey: .mouseCursorFollowsActiveWindow) ?? d.mouseCursorFollowsActiveWindow
         mouseCursorFocusLocation = try c.decodeIfPresent(FocusLocation.self, forKey: .mouseCursorFocusLocation) ?? d.mouseCursorFocusLocation
         columnSize = try c.decodeIfPresent(Double.self, forKey: .columnSize) ?? d.columnSize
         rowSize = try c.decodeIfPresent(Double.self, forKey: .rowSize) ?? d.rowSize
         maxWindowWidth = try c.decodeIfPresent(Double.self, forKey: .maxWindowWidth) ?? d.maxWindowWidth
-        showStackTabs = try c.decodeIfPresent(Bool.self, forKey: .showStackTabs) ?? d.showStackTabs
         logOnFocus = try c.decodeIfPresent(Bool.self, forKey: .logOnFocus) ?? d.logOnFocus
         superModifiers = try c.decodeIfPresent([MacModifier].self, forKey: .superModifiers) ?? d.superModifiers
         primaryModifiers = try c.decodeIfPresent([MacModifier].self, forKey: .primaryModifiers) ?? d.primaryModifiers

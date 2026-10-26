@@ -80,8 +80,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(toggle("Smart Gaps", s.smartGaps, #selector(toggleSmartGaps)))
         menu.addItem(.separator())
 
-        menu.addItem(toggle("Stack Windows by Dropping on Center", s.stackingWithMouse, #selector(toggleStackingWithMouse)))
-        menu.addItem(toggle("Show Stack Tabs", s.showStackTabs, #selector(toggleStackTabs)))
         menu.addItem(toggle("Cursor Follows Active Window", s.mouseCursorFollowsActiveWindow, #selector(toggleCursorFollows)))
         menu.addItem(toggle("Snap Floating Windows to Grid", s.snapToGrid, #selector(toggleSnap)))
         menu.addItem(.separator())
@@ -149,8 +147,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleTiling() { manager?.toggleTiling() }
     @objc private func toggleHint() { manager?.update { $0.activeHint.toggle() } }
     @objc private func toggleSmartGaps() { manager?.update { $0.smartGaps.toggle() } }
-    @objc private func toggleStackingWithMouse() { manager?.update { $0.stackingWithMouse.toggle() } }
-    @objc private func toggleStackTabs() { manager?.update { $0.showStackTabs.toggle() } }
     @objc private func toggleCursorFollows() { manager?.update { $0.mouseCursorFollowsActiveWindow.toggle() } }
     @objc private func toggleSnap() { manager?.update { $0.snapToGrid.toggle() } }
     @objc private func setInnerGap(_ sender: NSMenuItem) { manager?.update { $0.gapInner = Double(sender.tag) } }

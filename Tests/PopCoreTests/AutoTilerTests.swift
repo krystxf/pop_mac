@@ -5,12 +5,10 @@ import Testing
 final class FakeEnv: TilingEnvironment {
     var gapOuter: Double = 0
     var smartGaps = false
-    var stackingWithMouse = true
     var screens: [MonitorID: Rect] = [1: Rect(0, 0, 1600, 1000)]
     var rects: [WindowID: Rect] = [:]
     var keys: [WindowID: WorkspaceKey] = [:]
     var focusHistory: [WindowID] = []
-    var stacks: [StackNode] = []
 
     func workArea(_ monitor: MonitorID) -> Rect? { screens[monitor] }
     func windowRect(_ window: WindowID) -> Rect? { rects[window] }
@@ -26,7 +24,6 @@ final class FakeEnv: TilingEnvironment {
     func applyLayout(_ moves: [(WindowID, Rect)]) {
         for (w, r) in moves { rects[w] = r }
     }
-    func updateStacks(_ stacks: [StackNode]) { self.stacks = stacks }
 
     let key = WorkspaceKey(monitor: 1, space: 1)
 
@@ -101,7 +98,7 @@ final class FakeEnv: TilingEnvironment {
         #expect(tiler.attached.isEmpty)
     }
 
-    @Test func toggleOrientationStacksVertically() {
+    @Test func toggleOrientationSplitsVertically() {
         env.open(tiler, 1)
         env.open(tiler, 2)
         tiler.toggleOrientation(2)
@@ -128,21 +125,6 @@ final class FakeEnv: TilingEnvironment {
         tiler.moveAuto(2, to: .window(1))
         #expect(env.rects[2] == Rect(0, 0, 800, 1000))
         #expect(env.rects[1] == Rect(800, 0, 800, 1000))
-    }
-
-    @Test func stackingSharesOneTile() {
-        env.open(tiler, 1)
-        env.open(tiler, 2)
-        tiler.toggleStacking(2)
-        #expect(env.stacks.count == 1)
-        env.open(tiler, 3)
-        #expect(env.stacks.first?.entities == [2, 3])
-        #expect(env.rects[2] == env.rects[3])
-        #expect(env.rects[3]?.y == tiler.forest.tabHeight)
-
-        tiler.moveFromStack(3, direction: .down)
-        #expect(env.stacks.first?.entities == [2])
-        #expect(env.rects[3]?.y == 500)
     }
 
     @Test func keyboardResizeGrowsWidth() {
@@ -172,6 +154,17 @@ final class FakeEnv: TilingEnvironment {
         #expect(env.rects[3]!.x > 800)
     }
 
+    @Test func dropOnCenterSwaps() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        env.open(tiler, 3)
+        let r1 = env.rects[1], r3 = env.rects[3]
+        // Drag window 1 onto the middle of window 3.
+        tiler.onDrop(1, cursor: r3!.center, key: env.key)
+        #expect(env.rects[1] == r3)
+        #expect(env.rects[3] == r1)
+    }
+
     @Test func minimizeAndRestoreKeepsPlace() {
         env.open(tiler, 1)
         env.open(tiler, 2)
@@ -179,20 +172,6 @@ final class FakeEnv: TilingEnvironment {
         tiler.detachWindow(1)
         #expect(tiler.restore(1, to: attachment))
         #expect(env.rects[1] == Rect(0, 0, 800, 1000))
-    }
-
-    @Test func restoreIntoReplacedStackFails() {
-        env.open(tiler, 1)
-        env.open(tiler, 2)
-        tiler.toggleStacking(2)
-        env.open(tiler, 3)
-        let attachment = tiler.attachment(of: 2)!
-        tiler.detachWindow(2)
-        // Unstack 3, then stack it again: the old stack is gone.
-        tiler.toggleStacking(3)
-        tiler.toggleStacking(3)
-        #expect(!tiler.restore(2, to: attachment))
-        #expect(!tiler.isAttached(2))
     }
 
     @Test func untilableTreeIsNotReplaced() {

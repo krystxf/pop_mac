@@ -1,7 +1,8 @@
 # Pop Mac
 
 Pop Mac brings the [Pop!_OS Shell](https://github.com/pop-os/shell) tiling window manager to macOS.
-It ports Pop Shell's tiling tree, keyboard workflow, tile mode, stacking, and launcher to a native menu bar app.
+It ports Pop Shell's tiling tree, keyboard workflow, tile mode, and launcher to a native menu bar app.
+Pop Shell's window stacking is not included.
 
 ## Features
 
@@ -9,10 +10,9 @@ It ports Pop Shell's tiling tree, keyboard workflow, tile mode, stacking, and la
 | --- | --- |
 | Auto-tiling into a tree of forks, per display and workspace | Same. Each display on each macOS Space has its own tree. |
 | New windows split the previously focused window | Same |
-| Directional focus with Super + arrows / hjkl | Same. Left and right also cycle through stack tabs. |
-| Tile mode (Super + Return): move, resize, swap, orientation, stacking | Same, including the grid overlay for floating windows |
-| Stacking (Super + S) with a tab bar | Same. Click a tab to focus its window. |
-| Drag a tiled window to re-tile it, with a drop preview | Same. Drop on an edge to split, or on the center to stack. |
+| Directional focus with Super + arrows / hjkl | Same |
+| Tile mode (Super + Return): move, resize, swap, orientation | Same, including the grid overlay for floating windows |
+| Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows. |
 | Resize a tiled window with the mouse | Same. The neighbors follow. |
 | Toggle floating (Super + G), floating exceptions | Same. Every standard window tiles by default; only windows you float or match with a rule float. |
 | Toggle auto-tiling (Super + Y) | Same. Windows return to their original frames. |
@@ -69,7 +69,6 @@ Both are configurable. The menu bar item **View All Shortcuts…** shows the cur
 | Launcher | ⌃⌥ / |
 | Toggle orientation | ⌃⌥ O |
 | Toggle floating | ⌃⌥ G |
-| Toggle stacking | ⌃⌥ S |
 | Toggle auto-tiling | ⌃⌥ Y |
 | Move window to display | ⌃⌥⇧⌘ ← ↓ ↑ → |
 | Move window to previous / next Space | ⌃⌥⇧ ↑ / ⌃⌥⇧ ↓ |
@@ -85,7 +84,6 @@ In tile mode:
 | Resize (→ ↓ grow, ← ↑ shrink) | ⇧ + arrows |
 | Select a window to swap with | ⌘ + arrows |
 | Toggle orientation | O |
-| Toggle stacking | S |
 | Apply and exit | ↩ |
 | Exit | ⎋ |
 
@@ -104,8 +102,6 @@ The menu bar item **Edit Config File…** opens it. Missing keys use their defau
   "activeHintWidth": 3,
   "activeHintBorderRadius": 10,
   "hintColor": "#FBB86C",
-  "stackingWithMouse": true,
-  "showStackTabs": true,
   "mouseCursorFollowsActiveWindow": true,
   "mouseCursorFocusLocation": "center",
   "snapToGrid": false,
@@ -138,7 +134,6 @@ The menu bar item **Edit Config File…** opens it. Missing keys use their defau
 
 macOS restricts what a window manager can do. These parts differ from Pop Shell:
 
-- **Stacks:** macOS cannot hide a single window of another app. Stacked windows overlap in one tile, and the active window is raised above the others.
 - **Spaces:** Pop Mac cannot create Spaces. To move a window to another Space, it drags the window's title bar and presses ⌃← or ⌃→. This depends on the Mission Control shortcuts, and some apps may not respond to it.
 - **Native tabs:** each macOS tab is a window. The selected tab takes the tile of the tab it replaced.
 - **Snap back:** a tiled window that something other than a mouse drag moves returns to its tile.
@@ -159,7 +154,7 @@ POP_MAC_DEBUG=1 build/PopMac.app/Contents/MacOS/PopMac   # verbose log on stderr
 The code has two parts:
 
 - `Sources/PopCore` is the tiling engine without any AppKit code. It ports Pop Shell's `fork.ts`, `forest.ts`, `auto_tiler.ts`, `focus.ts`, and parts of `tiling.ts`. The tests in `Tests/PopCoreTests` cover it.
-- `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, catches key bindings with a keyboard event tap, and draws the overlay, active hint, stack tabs, and launcher with AppKit.
+- `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, catches key bindings with a keyboard event tap, and draws the overlay, active hint, and launcher with AppKit.
 
 ## License
 

@@ -4,8 +4,6 @@ import Foundation
 public protocol TilingEnvironment: AnyObject {
     var gapOuter: Double { get }
     var smartGaps: Bool { get }
-    /// Allows dropping a window onto the center of another to stack them.
-    var stackingWithMouse: Bool { get }
 
     /// The usable area of a display, without the menu bar and the Dock.
     func workArea(_ monitor: MonitorID) -> Rect?
@@ -20,8 +18,6 @@ public protocol TilingEnvironment: AnyObject {
 
     /// Moves windows to their calculated positions.
     func applyLayout(_ moves: [(WindowID, Rect)])
-    /// Called after a layout with every stack in the forest.
-    func updateStacks(_ stacks: [StackNode])
 }
 
 /// Where a window should go when it is moved with the keyboard.
@@ -69,9 +65,7 @@ public final class AutoTiler {
     public func arrange() {
         let moves = forest.requested
         forest.requested.removeAll()
-        forest.stackUpdates.removeAll()
         env.applyLayout(moves)
-        env.updateStacks(forest.allStacks())
     }
 
     private func outerArea(_ monitor: MonitorID) -> Rect? {
@@ -127,8 +121,8 @@ public final class AutoTiler {
 
     /// Tiles a window into another window's place.
     @discardableResult
-    public func attachToWindow(_ onto: WindowID, _ window: WindowID, moveBy: MoveBy, stackFromLeft: Bool = true) -> Bool {
-        guard let fork = forest.attachWindow(onto: onto, new: window, placeBy: moveBy, stackFromLeft: stackFromLeft) else {
+    public func attachToWindow(_ onto: WindowID, _ window: WindowID, moveBy: MoveBy) -> Bool {
+        guard let fork = forest.attachWindow(onto: onto, new: window, placeBy: moveBy) else {
             return false
         }
         if fork.right != nil { unsmartGap(fork) }
@@ -183,10 +177,7 @@ public final class AutoTiler {
     /// Detaches the window from the tree, if it is attached.
     public func detachWindow(_ window: WindowID) {
         guard let fork = forest.takeAttached(window) else { return }
-        guard let reflow = forest.detach(fork, window: window) else {
-            env.updateStacks(forest.allStacks())
-            return
-        }
+        guard let reflow = forest.detach(fork, window: window) else { return }
         if reflow.isToplevel && env.smartGaps && reflow.right == nil, let rect = env.workArea(reflow.workspace.monitor) {
             reflow.area = rect
             reflow.smartGapped = true
@@ -200,21 +191,12 @@ public final class AutoTiler {
             forest.takeAttached(window)
             forest.onDetach?(window)
         }
-        env.updateStacks([])
     }
 
     // MARK: - Queries
 
     public func windowsAreSiblings(_ a: WindowID, _ b: WindowID) -> Fork? {
         if let fa = forest.attached[a], let fb = forest.attached[b], fa === fb { return fa }
-        return nil
-    }
-
-    /// Finds the stack that holds a window: its fork, the stack, and whether it is the left branch.
-    public func findStack(_ window: WindowID) -> (fork: Fork, stack: StackNode, isLeft: Bool)? {
-        guard let fork = forest.attached[window] else { return nil }
-        if let s = fork.left.stack, s.contains(window) { return (fork, s, true) }
-        if let s = fork.right?.stack, s.contains(window) { return (fork, s, false) }
         return nil
     }
 
@@ -247,15 +229,7 @@ public final class AutoTiler {
 
         func replace(_ fork: Fork, _ x: WindowID, with y: WindowID) -> (() -> Void)? {
             if fork.left.isWindow(x) { return { fork.left = .window(y) } }
-            if let s = fork.left.stack, let i = s.entities.firstIndex(of: x) {
-                return { s.entities[i] = y; if s.active == x { s.active = y }; self.forest.setAttached(y, fork) }
-            }
-            if let right = fork.right {
-                if right.isWindow(x) { return { fork.right = .window(y) } }
-                if let s = right.stack, let i = s.entities.firstIndex(of: x) {
-                    return { s.entities[i] = y; if s.active == x { s.active = y }; self.forest.setAttached(y, fork) }
-                }
-            }
+            if let right = fork.right, right.isWindow(x) { return { fork.right = .window(y) } }
             return nil
         }
 
@@ -277,181 +251,25 @@ public final class AutoTiler {
     public func replace(_ old: WindowID, with new: WindowID) -> Bool {
         guard old != new, let fork = forest.attached[old], forest.attached[new] == nil else { return false }
 
-        func replaceIn(_ node: Node) -> Node? {
-            if node.isWindow(old) { return .window(new) }
-            if let s = node.stack, let i = s.entities.firstIndex(of: old) {
-                s.entities[i] = new
-                if s.active == old { s.active = new }
-                return node
-            }
-            return nil
-        }
-
         forest.takeAttached(old)
-        if let node = replaceIn(fork.left) {
-            fork.left = node
-        } else if let right = fork.right, let node = replaceIn(right) {
-            fork.right = node
+        if fork.left.isWindow(old) {
+            fork.left = .window(new)
+        } else if let right = fork.right, right.isWindow(old) {
+            fork.right = .window(new)
         } else {
             forest.setAttached(old, fork)
             return false
         }
-        // A stack keeps its node, so record the new member by hand.
-        forest.setAttached(new, fork)
         retile(fork)
         return true
-    }
-
-    // MARK: - Stacking
-
-    /// Toggles stacking for the window's branch.
-    public func toggleStacking(_ window: WindowID) {
-        guard let fork = forest.attached[window] else { return }
-        unstack(fork, window: window, toggled: true)
-    }
-
-    /// Turns a window into a stack, or a single-window stack back into a window.
-    public func unstack(_ fork: Fork, window: WindowID, toggled: Bool) {
-        if toggled && fork.left.isWindow(window) {
-            fork.left = .stack(forest.createStack(window: window, workspace: fork.workspace))
-        } else if let s = fork.left.stack, s.contains(window) {
-            if s.entities.count == 1 {
-                s.entities.removeAll()
-                fork.left = .window(window)
-                if fork.right == nil {
-                    forest.reassignToParent(fork, fork.left)
-                }
-            }
-        } else if toggled, let right = fork.right, right.isWindow(window) {
-            fork.right = .stack(forest.createStack(window: window, workspace: fork.workspace))
-        } else if let s = fork.right?.stack, s.contains(window) {
-            if s.entities.count == 1 {
-                s.entities.removeAll()
-                fork.right = .window(window)
-            }
-        }
-
-        reflow(window)
-    }
-
-    /// Converts a window into a stack, if it was not already stacked.
-    public func createStack(_ window: WindowID) {
-        guard let fork = forest.attached[window] else { return }
-        if fork.left.isWindow(window) {
-            fork.left = .stack(forest.createStack(window: window, workspace: fork.workspace))
-        } else if let right = fork.right, right.isWindow(window) {
-            fork.right = .stack(forest.createStack(window: window, workspace: fork.workspace))
-        }
-    }
-
-    /// Splits a window out of a stack into a new fork beside the stack.
-    @discardableResult
-    private func unstackFromFork(_ fork: Fork, left: Node, right: Node, isLeft: Bool) -> Fork {
-        let child = forest.createFork(left: left, right: right, area: fork.area, workspace: fork.workspace)
-        if isLeft {
-            fork.left = .fork(child)
-        } else {
-            fork.right = .fork(child)
-        }
-        return child
-    }
-
-    private func orientationAndReverse(_ direction: Direction) -> (Orientation, Bool) {
-        switch direction {
-        case .left: return (.horizontal, false)
-        case .right: return (.horizontal, true)
-        case .up: return (.vertical, false)
-        case .down: return (.vertical, true)
-        }
-    }
-
-    /// Moves a window within its stack, or out of the stack.
-    public func moveFromStack(_ window: WindowID, direction: Direction, forceDetach: Bool = false) {
-        guard let (fork, stack, isLeft) = findStack(window) else { return }
-
-        if stack.entities.count == 1 {
-            toggleStacking(window)
-            return
-        }
-
-        unsmartGap(fork)
-
-        func detach(_ orientation: Orientation, _ reverse: Bool) {
-            let branch: Node = .stack(stack)
-            var target = fork
-            if fork.right != nil {
-                let (l, r): (Node, Node) = reverse ? (branch, .window(window)) : (.window(window), branch)
-                target = unstackFromFork(fork, left: l, right: r, isLeft: isLeft)
-            } else if reverse {
-                fork.right = .window(window)
-            } else {
-                fork.right = fork.left
-                fork.left = .window(window)
-            }
-            target.setOrientation(orientation)
-            retile(fork)
-        }
-
-        let (orientation, reverse) = orientationAndReverse(direction)
-        let index = stack.entities.firstIndex(of: window) ?? 0
-
-        switch direction {
-        case .left, .right:
-            let edge = direction == .left ? 0 : stack.entities.count - 1
-            if !forceDetach && index != edge {
-                // Move the tab within the stack.
-                let other = direction == .left ? index - 1 : index + 1
-                stack.entities.swapAt(index, other)
-                stack.active = window
-                retile(fork)
-                return
-            }
-        case .up, .down:
-            break
-        }
-
-        stack.entities.removeAll { $0 == window }
-        stack.autoActivate()
-        detach(orientation, reverse)
-    }
-
-    /// Places a window beside a stack, in the given direction.
-    public func moveAlongsideStack(_ window: WindowID, stackMember: WindowID, direction: Direction) {
-        detachWindow(window)
-        guard let (fork, stack, isLeft) = findStack(stackMember) else { return }
-
-        unsmartGap(fork)
-
-        let (orientation, reverse) = orientationAndReverse(direction)
-        let branch: Node = .stack(stack)
-        var target = fork
-
-        if fork.right != nil {
-            let (l, r): (Node, Node) = reverse ? (branch, .window(window)) : (.window(window), branch)
-            target = unstackFromFork(fork, left: l, right: r, isLeft: isLeft)
-        } else if reverse {
-            fork.right = .window(window)
-        } else {
-            fork.right = fork.left
-            fork.left = .window(window)
-        }
-
-        target.setOrientation(orientation)
-        retile(fork)
     }
 
     // MARK: - Keyboard movement
 
     /// Moves the focused window onto another window, or onto another display.
-    public func moveAuto(_ focused: WindowID, to target: MoveTarget, stackFromLeft: Bool = true) {
+    public func moveAuto(_ focused: WindowID, to target: MoveTarget) {
         switch target {
         case .window(let moveTo):
-            if findStack(moveTo) != nil {
-                detachWindow(focused)
-                attachToWindow(moveTo, focused, moveBy: .auto, stackFromLeft: stackFromLeft)
-                return
-            }
-
             if let parent = windowsAreSiblings(focused, moveTo), parent.right != nil {
                 parent.swapBranches()
                 retile(parent)
@@ -460,7 +278,7 @@ public final class AutoTiler {
 
             guard let src = env.windowRect(focused) else { return }
             detachWindow(focused)
-            if !attachToWindow(moveTo, focused, moveBy: .keyboard(src: src), stackFromLeft: false),
+            if !attachToWindow(moveTo, focused, moveBy: .keyboard(src: src)),
                let key = env.workspaceKey(of: moveTo) {
                 attachToWorkspace(focused, key: key)
             }
@@ -478,10 +296,6 @@ public final class AutoTiler {
         guard let fork = forest.attached[window],
               var crect = forest.tileRects[window] ?? env.windowRect(window)
         else { return }
-        if findStack(window) != nil {
-            crect.y -= forest.tabHeight
-            crect.height += forest.tabHeight
-        }
 
         let toparea = forest.toplevel(of: fork).area
         var grabRect = crect
@@ -518,22 +332,13 @@ public final class AutoTiler {
         guard let fork = forest.attached[window] else { return }
         // The tile can be larger than the window, for example with a maximum width.
         // Move the tile's edges by as much as the window's edges moved.
-        var original = forest.tileRects[window] ?? frame
+        let original = forest.tileRects[window] ?? frame
         let x = original.x + (newFrame.x - frame.x)
         let y = original.y + (newFrame.y - frame.y)
         let maxX = original.maxX + (newFrame.maxX - frame.maxX)
         let maxY = original.maxY + (newFrame.maxY - frame.maxY)
         var crect = Rect(x, y, maxX - x, maxY - y)
-        if findStack(window) != nil {
-            crect.y -= forest.tabHeight
-            crect.height += forest.tabHeight
-        }
         crect.clamp(forest.toplevel(of: fork).area)
-
-        if findStack(window) != nil {
-            original.y -= forest.tabHeight
-            original.height += forest.tabHeight
-        }
 
         let movement = Movement.calculate(from: original, change: crect)
         forest.manuallyMoved = true
@@ -548,17 +353,13 @@ public final class AutoTiler {
 
     // MARK: - Mouse drops
 
-    /// Derives how a window attaches from the cursor position.
-    ///
-    /// Returns nil when the window should be stacked instead.
-    public func cursorPlacement(area: Rect, cursor: Point) -> MoveBy? {
-        let (_, side) = Geom.nearestSide(cursor, area, allowCenter: env.stackingWithMouse)
-        switch side {
-        case .left: return .cursor(orientation: .horizontal, swap: true)
-        case .right: return .cursor(orientation: .horizontal, swap: false)
-        case .top: return .cursor(orientation: .vertical, swap: true)
-        case .bottom: return .cursor(orientation: .vertical, swap: false)
-        case .center: return nil
+    /// Derives how a window attaches from the side of `area` nearest to the cursor.
+    public func cursorPlacement(area: Rect, cursor: Point) -> (orientation: Orientation, swap: Bool) {
+        switch Geom.nearestSide(cursor, area, allowCenter: false).1 {
+        case .left: return (.horizontal, true)
+        case .top: return (.vertical, true)
+        case .bottom: return (.vertical, false)
+        case .right, .center: return (.horizontal, false)
         }
     }
 
@@ -574,6 +375,14 @@ public final class AutoTiler {
         return nil
     }
 
+    /// The target's tile, if the cursor is in the center zone of that tile.
+    private func centerTile(of target: WindowID, cursor: Point) -> Rect? {
+        guard let tile = forest.tileRects[target] ?? env.windowRect(target), tile.contains(cursor),
+              Geom.nearestSide(cursor, tile, allowCenter: true).1 == .center
+        else { return nil }
+        return tile
+    }
+
     /// The area that the overlay shows while a window is dragged.
     public func dropPreview(_ window: WindowID, cursor: Point, key: WorkspaceKey) -> Rect? {
         guard let fork = forest.attached[window] else { return nil }
@@ -584,9 +393,13 @@ public final class AutoTiler {
 
         guard let target = dropTarget(window, cursor: cursor, key: key) else { return nil }
 
-        let isSibling = windowsAreSiblings(window, target) != nil
+        // A drop on the center swaps, so show the target's tile.
+        if let tile = centerTile(of: target, cursor: cursor) {
+            return tile
+        }
+
         let area: Rect
-        if findStack(window) == nil && isSibling {
+        if windowsAreSiblings(window, target) != nil {
             area = fork.area
         } else if let r = env.windowRect(target) {
             area = r
@@ -594,10 +407,7 @@ public final class AutoTiler {
             return nil
         }
 
-        guard case .cursor(let orientation, let swap)? = cursorPlacement(area: area, cursor: cursor) else {
-            return area
-        }
-
+        let (orientation, swap) = cursorPlacement(area: area, cursor: cursor)
         let hw = area.width / 2, hh = area.height / 2
         switch (orientation, swap) {
         case (.horizontal, true): return Rect(area.x, area.y, hw, area.height)
@@ -651,34 +461,35 @@ public final class AutoTiler {
             detachWindow(window)
             attachToMonitor(window, key: key)
         } else if let attachTo {
-            placeOrStack(window, attachTo: attachTo, cursor: cursor)
+            place(window, onto: attachTo, cursor: cursor)
         } else {
             detachWindow(window)
             attachMonitor()
         }
     }
 
-    @discardableResult
-    public func placeOrStack(_ window: WindowID, attachTo: WindowID, cursor: Point) -> Bool {
-        guard let fork = forest.attached[attachTo] else { return true }
+    /// Places a dropped window next to the window under the cursor.
+    ///
+    /// A drop on the center of a window swaps the two windows. A drop near an
+    /// edge splits the window's tile on that side.
+    public func place(_ window: WindowID, onto attachTo: WindowID, cursor: Point) {
+        guard let fork = forest.attached[attachTo] else { return }
 
-        let isSibling = windowsAreSiblings(window, attachTo) != nil
-        let windowStack = findStack(window)?.stack
-        let targetStack = findStack(attachTo)
-
-        let attachArea: Rect
-        if windowStack == nil && isSibling {
-            attachArea = fork.area
-        } else if let r = env.windowRect(attachTo) {
-            attachArea = r
-        } else {
-            return true
+        if centerTile(of: attachTo, cursor: cursor) != nil {
+            attachSwap(window, attachTo)
+            return
         }
 
-        var placement = cursorPlacement(area: attachArea, cursor: cursor)
-        let matchingStack = windowStack != nil && windowStack === targetStack?.stack
+        let isSibling = windowsAreSiblings(window, attachTo) != nil
+        guard let attachArea = isSibling ? fork.area : env.windowRect(attachTo) else { return }
 
-        func swap(_ orientation: Orientation, _ direction: Direction) {
+        let (orientation, swapSides) = cursorPlacement(area: attachArea, cursor: cursor)
+        let direction: Direction = orientation == .horizontal
+            ? (swapSides ? .left : .right)
+            : (swapSides ? .up : .down)
+
+        /// Orders the window and its sibling in `fork` so the window is on the drop side.
+        func arrange(_ fork: Fork) {
             fork.setOrientation(orientation)
             let isLeft = fork.left.isWindow(window)
             let shouldSwap = (isLeft && (direction == .right || direction == .down))
@@ -687,87 +498,45 @@ public final class AutoTiler {
             retile(fork)
         }
 
-        if case .cursor(let orientation, let swapSides)? = placement {
-            let direction: Direction = orientation == .horizontal
-                ? (swapSides ? .left : .right)
-                : (swapSides ? .up : .down)
-
-            if targetStack != nil {
-                if matchingStack {
-                    moveFromStack(window, direction: direction, forceDetach: true)
-                } else if isSibling && windowStack == nil {
-                    swap(orientation, direction)
-                } else {
-                    moveAlongsideStack(window, stackMember: attachTo, direction: direction)
-                }
-                return true
-            } else if isSibling && windowStack == nil {
-                swap(orientation, direction)
-                return true
-            } else if fork.isToplevel && fork.right == nil {
-                detachWindow(window)
-                attachToWindow(attachTo, window, moveBy: placement!)
-                if let newFork = forest.attached[window] {
-                    newFork.setOrientation(orientation)
-                    let isLeft = newFork.left.isWindow(window)
-                    let shouldSwap = (isLeft && (direction == .right || direction == .down))
-                        || (!isLeft && (direction == .left || direction == .up))
-                    if shouldSwap { newFork.swapBranches() }
-                    retile(newFork)
-                }
-                return true
-            }
-        } else if matchingStack {
-            retile(fork)
-            return true
+        if isSibling {
+            arrange(fork)
+        } else if fork.isToplevel && fork.right == nil {
+            detachWindow(window)
+            attachToWindow(attachTo, window, moveBy: .cursor(orientation: orientation, swap: swapSides))
+            if let newFork = forest.attached[window] { arrange(newFork) }
         } else {
-            if targetStack == nil { createStack(attachTo) }
-            placement = .auto
+            detachWindow(window)
+            attachToWindow(attachTo, window, moveBy: .cursor(orientation: orientation, swap: swapSides))
         }
-
-        detachWindow(window)
-        return attachToWindow(attachTo, window, moveBy: placement ?? .auto)
     }
 
     // MARK: - Minimize
 
     /// Remembers where a window was so that it can return there.
-    public enum Attachment {
-        case branch(fork: Fork, isLeft: Bool)
-        case stack(fork: Fork, stack: StackNode)
+    public struct Attachment {
+        let fork: Fork
+        let isLeft: Bool
     }
 
     /// The workspace that an attachment belongs to.
     public func workspace(of attachment: Attachment) -> WorkspaceKey {
-        switch attachment {
-        case .branch(let fork, _), .stack(let fork, _): return forest.toplevel(of: fork).workspace
-        }
+        forest.toplevel(of: attachment.fork).workspace
     }
 
     public func attachment(of window: WindowID) -> Attachment? {
         guard let fork = forest.attached[window] else { return nil }
-        if let (f, s, _) = findStack(window) { return .stack(fork: f, stack: s) }
-        return .branch(fork: fork, isLeft: fork.left.isWindow(window))
+        return Attachment(fork: fork, isLeft: fork.left.isWindow(window))
     }
 
     /// Restores a window to where it was before it was minimized.
     ///
     /// Returns false if that place no longer exists.
     public func restore(_ window: WindowID, to attachment: Attachment) -> Bool {
-        switch attachment {
-        case .branch(let fork, let isLeft):
-            guard !fork.isDeleted else { return false }
-            forest.attachFork(fork, window: window, isLeft: isLeft)
-            unsmartGap(forest.toplevel(of: fork))
-            retile(fork)
-            return true
-        case .stack(let fork, let stack):
-            guard !fork.isDeleted, !stack.entities.isEmpty, let member = stack.entities.first,
-                  let (f, current, _) = findStack(member), current === stack
-            else { return false }
-            forest.attachStack(stack, fork: f, window: window, stackFromLeft: true)
-            retile(f)
-            return true
-        }
+        let fork = attachment.fork
+        guard !fork.isDeleted else { return false }
+        forest.attachFork(fork, window: window, isLeft: attachment.isLeft)
+        unsmartGap(forest.toplevel(of: fork))
+        retile(fork)
+        return true
     }
 }

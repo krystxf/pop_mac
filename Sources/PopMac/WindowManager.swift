@@ -31,7 +31,6 @@ final class WindowManager {
 
     let overlay = OverlayWindow()
     let hint = HintWindow()
-    private let tabs = StackTabsController()
     let hotkeys = HotkeyManager()
     private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
@@ -48,7 +47,6 @@ final class WindowManager {
     private var snapBackPending = Set<WindowID>()
     private var snapBackScheduled = false
     private var verifyScheduled = false
-    private var stacksScheduled = false
     private var spaceScanScheduled = false
 
     init(settings: Settings) {
@@ -155,7 +153,6 @@ final class WindowManager {
             autoTiler.forest.gapInner = settings.gapInner
             retileAll()
         }
-        scheduleStacksRefresh()
         scheduleHint()
         onStateChange?()
     }
@@ -278,17 +275,11 @@ final class WindowManager {
         case .windowMoved(let element), .windowResized(let element):
             if let id = lookup(element, pid: pid) {
                 if id == prevFocused[1] { scheduleHint() }
-                if autoTiler?.findStack(id) != nil { scheduleStacksRefresh() }
                 // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
                 if autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
                    Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5 {
                     scheduleSnapBack(id)
                 }
-            }
-
-        case .titleChanged(let element):
-            if let id = lookup(element, pid: pid), autoTiler?.findStack(id) != nil {
-                scheduleStacksRefresh()
             }
 
         case .appHidden:
@@ -423,11 +414,6 @@ final class WindowManager {
             prevFocused[1] = window.id
         }
 
-        if let stack = autoTiler?.findStack(window.id)?.stack, stack.active != window.id {
-            stack.active = window.id
-            scheduleStacksRefresh()
-        }
-
         // Every window that can tile is tiled, for example after leaving full screen.
         autoTileIfNeeded(window.id)
         scheduleHint()
@@ -505,7 +491,6 @@ final class WindowManager {
             }
         }
 
-        scheduleStacksRefresh()
         if let focused = focusedWindow() { onFocused(focused) }
     }
 
@@ -573,7 +558,6 @@ final class WindowManager {
     func autoTileOn() {
         if autoTiler != nil { return }
         let tiler = AutoTiler(env: self, gapInner: settings.gapInner)
-        tiler.forest.tabHeight = 26
         tiler.forest.onAttach = { [weak self] id in self?.onTileAttach(id) }
         tiler.forest.onDetach = { [weak self] id in self?.onTileDetach(id) }
         autoTiler = tiler
@@ -595,7 +579,6 @@ final class WindowManager {
         exitTileMode()
         tiler.destroy()
         autoTiler = nil
-        tabs.removeAll()
         minimizedAttachments.removeAll()
 
         if settings.tileByDefault {
@@ -676,10 +659,6 @@ final class WindowManager {
     /// Focuses a window, and moves the cursor onto it if enabled.
     func activate(_ id: WindowID, moveCursor: Bool = true) {
         guard let window = windows[id] else { return }
-        if let stack = autoTiler?.findStack(id)?.stack, stack.active != id {
-            stack.active = id
-            scheduleStacksRefresh()
-        }
         window.focus()
         if moveCursor && settings.mouseCursorFollowsActiveWindow, let frame = window.frame {
             let point = settings.mouseCursorFocusLocation.point(in: frame)
@@ -712,39 +691,6 @@ final class WindowManager {
             return
         }
         hint.show(around: frame, above: id)
-    }
-
-    func scheduleStacksRefresh() {
-        guard !stacksScheduled else { return }
-        stacksScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                self?.stacksScheduled = false
-                self?.refreshStacks()
-            }
-        }
-    }
-
-    private func refreshStacks() {
-        guard let autoTiler, settings.showStackTabs else {
-            tabs.removeAll()
-            return
-        }
-
-        let current = Set(displays.map { currentKey(of: $0) })
-        let height = autoTiler.forest.tabHeight
-        let entries = autoTiler.forest.allStacks().compactMap { stack -> (stack: StackNode, frame: Rect, tabs: [StackTabBar.Tab])? in
-            guard let rect = stack.rect, current.contains(stack.workspace), !stack.entities.isEmpty else { return nil }
-            let tabs = stack.entities.compactMap { id -> StackTabBar.Tab? in
-                guard let window = windows[id] else { return nil }
-                return StackTabBar.Tab(id: id, title: window.title, icon: window.app.icon)
-            }
-            return (stack, Rect(rect.x, rect.y - height, rect.width, height - 2), tabs)
-        }
-
-        tabs.sync(entries, color: hintColor) { [weak self] id in
-            MainActor.assumeIsolated { self?.activate(id, moveCursor: false) }
-        }
     }
 
     // MARK: - Mouse
@@ -812,7 +758,6 @@ final class WindowManager {
 extension WindowManager: @preconcurrency TilingEnvironment {
     var gapOuter: Double { settings.gapOuter }
     var smartGaps: Bool { settings.smartGaps }
-    var stackingWithMouse: Bool { settings.stackingWithMouse }
 
     func workArea(_ monitor: MonitorID) -> Rect? {
         display(monitor)?.workArea
@@ -895,9 +840,5 @@ extension WindowManager: @preconcurrency TilingEnvironment {
                 self.scheduleHint()
             }
         }
-    }
-
-    func updateStacks(_ stacks: [StackNode]) {
-        scheduleStacksRefresh()
     }
 }

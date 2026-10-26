@@ -1,39 +1,9 @@
 import Foundation
 
-/// A set of windows that share one tile and show a tab bar above it.
-public final class StackNode {
-    public let id: Int
-    public var entities: [WindowID]
-    /// The window whose tab is selected, and which is raised above its siblings.
-    public var active: WindowID
-    /// The area that the stacked windows occupy, below the tab bar.
-    public var rect: Rect?
-    public var workspace: WorkspaceKey
-
-    init(id: Int, window: WindowID, workspace: WorkspaceKey) {
-        self.id = id
-        self.entities = [window]
-        self.active = window
-        self.workspace = workspace
-    }
-
-    public var activeIndex: Int? { entities.firstIndex(of: active) }
-
-    public func contains(_ window: WindowID) -> Bool { entities.contains(window) }
-
-    /// Selects a sensible active window after the active one left the stack.
-    public func autoActivate() {
-        if !entities.contains(active), let first = entities.first {
-            active = first
-        }
-    }
-}
-
-/// A node is either a fork, a window, or a stack of windows.
+/// A node is either a fork or a window.
 public enum Node {
     case fork(Fork)
     case window(WindowID)
-    case stack(StackNode)
 
     public func isFork(_ fork: Fork) -> Bool {
         if case .fork(let f) = self { return f === fork }
@@ -43,21 +13,6 @@ public enum Node {
     public func isWindow(_ window: WindowID) -> Bool {
         if case .window(let w) = self { return w == window }
         return false
-    }
-
-    public func isInStack(_ window: WindowID) -> Bool {
-        if case .stack(let s) = self { return s.contains(window) }
-        return false
-    }
-
-    /// True if this node is the window, or a stack that holds the window.
-    public func holds(_ window: WindowID) -> Bool {
-        isWindow(window) || isInStack(window)
-    }
-
-    public var stack: StackNode? {
-        if case .stack(let s) = self { return s }
-        return nil
     }
 
     public var windowID: WindowID? {
@@ -77,22 +32,13 @@ public enum Node {
             fork.measure(forest, area: area)
         case .window(let window):
             forest.record(window, area)
-        case .stack(let stack):
-            var rect = area
-            rect.y += forest.tabHeight
-            rect.height -= forest.tabHeight
-            stack.rect = rect
-            for entity in stack.entities {
-                forest.record(entity, rect)
-            }
-            forest.stackUpdates.append(stack)
         }
     }
 }
 
 /// A tiling fork contains two children nodes.
 ///
-/// These nodes may either be windows, stacks, or sub-forks.
+/// These nodes may either be windows or sub-forks.
 public final class Fork {
     public let id: Int
     unowned let forest: Forest
@@ -207,8 +153,8 @@ public final class Fork {
 
     /// Finds the branch that holds the window.
     public func findBranch(_ window: WindowID) -> Node? {
-        if left.holds(window) { return left }
-        if let right, right.holds(window) { return right }
+        if left.isWindow(window) { return left }
+        if let right, right.isWindow(window) { return right }
         return nil
     }
 

@@ -146,7 +146,7 @@ public enum Geom {
 
     /// Finds the side of `rect` that is nearest to `origin`.
     ///
-    /// The center only counts when stacking with the mouse is permitted.
+    /// The center counts only when `allowCenter` is true.
     public static func nearestSide(_ origin: Point, _ rect: Rect, allowCenter: Bool) -> (Double, Side) {
         let left = distance(origin, rect.west)
         let top = distance(origin, rect.north)

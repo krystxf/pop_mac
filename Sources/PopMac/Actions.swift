@@ -56,7 +56,6 @@ extension WindowManager {
         case .tileOrientation: toggleOrientation()
         case .toggleFloating: toggleFloating()
         case .toggleTiling: toggleTiling()
-        case .toggleStackingGlobal: toggleStacking()
         case .tileMoveLeftGlobal: moveFocused(.left)
         case .tileMoveDownGlobal: moveFocused(.down)
         case .tileMoveUpGlobal: moveFocused(.up)
@@ -71,7 +70,6 @@ extension WindowManager {
         case .closeWindow: focusedWindow()?.close()
         case .minimizeWindow: focusedWindow()?.minimize()
         case .managementOrientation: tileModeOrientation()
-        case .toggleStacking: tileModeStacking()
         case .tileMoveLeft: tileModeMove(.left)
         case .tileMoveDown: tileModeMove(.down)
         case .tileMoveUp: tileModeMove(.up)
@@ -91,20 +89,9 @@ extension WindowManager {
 
     // MARK: - Focus
 
-    /// Focuses the nearest window in a direction. Left and right first cycle through stack tabs.
+    /// Focuses the nearest window in a direction.
     func focus(_ direction: Direction) {
         guard let focused = focusedWindow() else { return }
-
-        if direction == .left || direction == .right,
-           let stack = autoTiler?.findStack(focused.id)?.stack,
-           let index = stack.entities.firstIndex(of: focused.id) {
-            let next = direction == .left ? index - 1 : index + 1
-            if stack.entities.indices.contains(next) {
-                activate(stack.entities[next])
-                return
-            }
-        }
-
         if let next = selectWindow(direction, from: focused.id) {
             activate(next)
         }
@@ -144,29 +131,18 @@ extension WindowManager {
         }
     }
 
-    func toggleStacking() {
-        guard let focused = focusedWindow(), let autoTiler else { return }
-        if floating.contains(focused.id) {
-            floating.remove(focused.id)
-            autoTiler.autoTile(focused.id)
-        }
-        autoTiler.toggleStacking(focused.id)
-    }
-
     /// Moves the focused tiled window in a direction, outside tile mode.
     func moveFocused(_ direction: Direction) {
         guard let focused = focusedWindow() else { return }
         moveTiled(focused.id, direction)
     }
 
-    /// Moves a tiled window in a direction: within its stack, onto a window, or onto a display.
+    /// Moves a tiled window in a direction: onto a window, or onto a display.
     func moveTiled(_ id: WindowID, _ direction: Direction) {
         guard let autoTiler, autoTiler.isAttached(id) else { return }
 
-        if autoTiler.findStack(id) != nil {
-            autoTiler.moveFromStack(id, direction: direction)
-        } else if let target = moveTarget(id, direction) {
-            autoTiler.moveAuto(id, to: target, stackFromLeft: direction == .left)
+        if let target = moveTarget(id, direction) {
+            autoTiler.moveAuto(id, to: target)
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -380,16 +356,6 @@ extension WindowManager {
     private func tileModeOrientation() {
         guard let mode = tileMode, let autoTiler else { return }
         autoTiler.toggleOrientation(mode.window)
-        refreshTileOverlay()
-    }
-
-    private func tileModeStacking() {
-        guard let mode = tileMode, let autoTiler else { return }
-        if floating.contains(mode.window) {
-            floating.remove(mode.window)
-            autoTiler.autoTile(mode.window)
-        }
-        autoTiler.toggleStacking(mode.window)
         refreshTileOverlay()
     }
 
