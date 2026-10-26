@@ -34,7 +34,6 @@ final class WindowManager {
     private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
     private var signalSource: DispatchSourceSignal?
-    private var previewWork: DispatchWorkItem?
     var tileMode: TileMode?
     /// Windows to check after a move: the frame they should have, and whether it was set twice.
     private var pendingVerify: [WindowID: (target: Rect, retried: Bool)] = [:]
@@ -188,20 +187,6 @@ final class WindowManager {
 
     private func applyStyles() {
         overlay.style(color: overlayColor, radius: settings.overlayBorderRadius)
-    }
-
-    /// Shows the overlay on the focused window for a moment, to preview a color.
-    func previewOverlay() {
-        guard tileMode == nil, let frame = focusedWindow()?.frame else { return }
-        overlay.show(frame)
-        previewWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                if self?.tileMode == nil { self?.overlay.hide() }
-            }
-        }
-        previewWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
 
     // MARK: - Applications

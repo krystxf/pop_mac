@@ -23,6 +23,22 @@ Pop Shell's window stacking is not included.
 | Cursor follows the active window | Same |
 | Snap floating windows to the grid | Same |
 
+## Using Pop Mac
+
+Pop Mac runs in the menu bar. On the first start, a window asks for Accessibility access and then shows the main shortcuts.
+
+The menu bar item turns tiling on or off, floats the focused window, opens the launcher, and opens **Settings**:
+
+| Tab | Settings |
+| --- | --- |
+| General | Tile automatically, launch at login, move the cursor with keyboard focus, snap floating windows to the grid |
+| Layout | Gaps between windows and at the screen edges, smart gaps, maximum window width |
+| Appearance | The highlight color for tile mode and drop previews |
+| Shortcuts | The keys that Super and Primary stand for, and every shortcut |
+| Floating | Rules for windows that float instead of tile |
+
+Hold ⌥ while the menu is open to show **Copy Tiling Tree**, which copies the layout for bug reports.
+
 ## Install
 
 Pop Mac needs macOS 13 or later.
@@ -35,7 +51,7 @@ open "$(brew --prefix)/opt/pop-mac/PopMac.app"
 ```
 
 Homebrew builds Pop Mac from source, so it needs Xcode 16 or later.
-To start Pop Mac at login, run `brew services start pop-mac`, or use **Launch at Login** in its menu bar menu.
+To start Pop Mac at login, turn on **Launch at login** in its settings, or run `brew services start pop-mac`.
 
 To update, run `brew upgrade pop-mac`. To install the latest commit instead of the latest release, run
 `brew install --HEAD krystxf/tap/pop-mac`.
@@ -78,7 +94,7 @@ macOS then asks for access again: remove the old "PopMac" entry from the Accessi
 ## Shortcuts
 
 A Mac keyboard has no Super key. By default, `<Super>` is **⌃⌥** (Control + Option), and `<Primary>` is **⌘**.
-Both are configurable. The menu bar item **View All Shortcuts…** shows the current bindings.
+Both are configurable in **Settings > Shortcuts**, which also lists the current bindings.
 
 | Action | Keys |
 | --- | --- |
@@ -107,8 +123,10 @@ In tile mode:
 
 ## Configuration
 
-Settings live in `~/.config/pop-mac/config.json`. Pop Mac reloads the file when it changes.
-The menu bar item **Edit Config File…** opens it. Missing keys use their defaults.
+Most settings are in the **Settings** window, which you open from the menu bar item.
+Everything is stored in `~/.config/pop-mac/config.json`, and you can also edit that file directly.
+Pop Mac reloads it when it changes. Missing keys use their defaults.
+If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps the last good settings.
 
 ```json
 {
@@ -152,7 +170,7 @@ The menu bar item **Edit Config File…** opens it. Missing keys use their defau
   - Pop Mac applies rule changes as soon as you save the file.
   - Built-in rules float Keka, whose window has a fixed size. They come after your rules, so `{ "app": "Keka", "disabled": true }` makes it tile.
 - `overlayColor` is the highlight color for tile mode and drop previews: `#RRGGBB`, or `accent` for the system accent color.
-  The menu bar item **Highlight Color** sets it too, with presets and a color picker.
+  **Settings > Appearance** sets it too, with presets and a color picker.
 - `mouseCursorFocusLocation` is one of `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
 
 ## Limitations
@@ -176,6 +194,9 @@ make build    # debug build
 make run      # build the app bundle and open it
 .build/debug/PopMac --diagnose   # print displays, Spaces, and windows, then exit
 POP_MAC_DEBUG=1 build/PopMac.app/Contents/MacOS/PopMac   # verbose log on stderr
+POP_MAC_SHOW_WELCOME=1 build/PopMac.app/Contents/MacOS/PopMac   # show the first-run window
+kill -USR1 "$(pgrep -f PopMac.app/Contents/MacOS/PopMac)"   # write the tiling tree to the log
+swift scripts/make-icon.swift   # redraw Resources/AppIcon.icns
 ```
 
 CI runs on every push and pull request. It checks the formatting with SwiftFormat, lints the

@@ -1,35 +1,69 @@
 import AppKit
 import PopCore
-import ServiceManagement
 
 /// The menu bar app, the macOS counterpart of Pop Shell's top bar indicator.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var manager: WindowManager?
-    private let shortcuts = ShortcutsWindow()
+    private let settingsWindow = SettingsWindowController()
+    private let welcome = WelcomeWindowController()
     private var permissionTimer: Timer?
     private var configWatcher: DispatchSourceFileSystemObject?
     private var fileWatcher: DispatchSourceFileSystemObject?
 
+    /// Why the config file could not be read, if it could not.
+    private var configError: String?
+    /// True if macOS revoked Accessibility access while Pop Mac ran.
+    private var accessLost = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let other = otherInstance() {
+            // Two copies would fight over every window.
+            Log.warn("Pop Mac is already running (pid \(other.processIdentifier)); quitting")
+            NSApp.terminate(nil)
+            return
+        }
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
         updateIcon()
 
-        if AX.isTrusted(prompt: true) {
+        if AX.isTrusted(prompt: false) {
             start()
-        } else {
-            // Wait until the user grants Accessibility access in System Settings.
-            permissionTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard AX.isTrusted(prompt: false) else { return }
-                    self?.permissionTimer?.invalidate()
-                    self?.start()
-                }
+            // For development: show the first-run window even with access.
+            if ProcessInfo.processInfo.environment["POP_MAC_SHOW_WELCOME"] != nil {
+                welcome.isTrusted = true
+                welcome.show()
             }
+        } else {
+            welcome.show()
+        }
+
+        // Watches for access being granted at first, and revoked later.
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkAccess() }
+        }
+    }
+
+    /// Another running copy of Pop Mac, for example one from Homebrew and one built locally.
+    private func otherInstance() -> NSRunningApplication? {
+        guard let id = Bundle.main.bundleIdentifier else { return nil }
+        let me = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: id).first { $0.processIdentifier != me }
+    }
+
+    private func checkAccess() {
+        let trusted = AX.isTrusted(prompt: false)
+        if manager == nil {
+            guard trusted else { return }
+            start()
+            welcome.isTrusted = true
+        } else if accessLost != !trusted {
+            accessLost = !trusted
+            updateIcon()
         }
     }
 
@@ -38,12 +72,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             settings = try Settings.load()
         } catch {
-            Log.warn("config is invalid, using defaults: \(error)")
+            configError = Self.describe(error)
             settings = Settings()
         }
 
         let manager = WindowManager(settings: settings)
-        manager.onStateChange = { [weak self] in self?.updateIcon() }
+        manager.onStateChange = { [weak self] in
+            self?.updateIcon()
+            self?.settingsWindow.refresh()
+        }
         self.manager = manager
         manager.start()
         updateIcon()
@@ -51,8 +88,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateIcon() {
-        let tiled = manager?.autoTiler != nil
-        let name = manager == nil ? "exclamationmark.triangle" : (tiled ? "rectangle.split.2x1.fill" : "rectangle.split.2x1")
+        let name = if manager == nil || accessLost || configError != nil {
+            "exclamationmark.triangle"
+        } else if manager?.autoTiler != nil {
+            "rectangle.split.2x1.fill"
+        } else {
+            "rectangle.split.2x1"
+        }
         let image = NSImage(systemSymbolName: name, accessibilityDescription: "Pop Mac")
         image?.isTemplate = true
         statusItem.button?.image = image
@@ -64,168 +106,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
 
         guard let manager else {
-            menu.addItem(withTitle: "Waiting for Accessibility access…", action: nil, keyEquivalent: "")
-            menu.addItem(item("Open Accessibility Settings", #selector(openAccessibility)))
+            menu.addItem(disabled("Waiting for Accessibility access"))
+            menu.addItem(item("Set Up Pop Mac…", #selector(showWelcome)))
             menu.addItem(.separator())
             menu.addItem(item("Quit Pop Mac", #selector(quit), key: "q"))
             return
         }
 
-        let s = manager.settings
-        menu.addItem(toggle("Tile Windows", manager.autoTiler != nil, #selector(toggleTiling), hint: .toggleTiling))
-        menu.addItem(.separator())
+        if accessLost {
+            menu.addItem(warning("Accessibility access was turned off"))
+            menu.addItem(item("Open Accessibility Settings…", #selector(openAccessibility)))
+            menu.addItem(.separator())
+        }
+        if configError != nil {
+            menu.addItem(warning("The config file has an error"))
+            menu.addItem(item("Show Error…", #selector(showConfigError)))
+            menu.addItem(.separator())
+        }
 
-        menu.addItem(gapMenu("Inner Gap", current: s.gapInner, action: #selector(setInnerGap(_:))))
-        menu.addItem(gapMenu("Outer Gap", current: s.gapOuter, action: #selector(setOuterGap(_:))))
-        menu.addItem(toggle("Smart Gaps", s.smartGaps, #selector(toggleSmartGaps)))
-        menu.addItem(colorMenu(current: s.overlayColor))
+        menu.addItem(item("Tile Windows", #selector(toggleTiling), shortcut: .toggleTiling, on: manager.autoTiler != nil))
+        menu.addItem(item("Float Focused Window", #selector(toggleFloating), shortcut: .toggleFloating))
         menu.addItem(.separator())
+        menu.addItem(item("Open Launcher", #selector(openLauncher), shortcut: .activateLauncher))
+        menu.addItem(item("Keyboard Shortcuts…", #selector(showShortcuts)))
+        menu.addItem(.separator())
+        menu.addItem(item("Settings…", #selector(showSettings), key: ","))
+        menu.addItem(item("About Pop Mac", #selector(showAbout)))
 
-        menu.addItem(toggle("Cursor Follows Active Window", s.mouseCursorFollowsActiveWindow, #selector(toggleCursorFollows)))
-        menu.addItem(toggle("Snap Floating Windows to Grid", s.snapToGrid, #selector(toggleSnap)))
-        menu.addItem(.separator())
+        // Hold Option to show the debug item in place of About.
+        let debug = item("Copy Tiling Tree", #selector(copyTree))
+        debug.isAlternate = true
+        debug.keyEquivalentModifierMask = .option
+        menu.addItem(debug)
 
-        menu.addItem(toggle("Launcher…", false, #selector(openLauncher), hint: .activateLauncher))
-        menu.addItem(item("View All Shortcuts…", #selector(showShortcuts)))
-        menu.addItem(item("Edit Config File…", #selector(editConfig)))
-        menu.addItem(item("Reload Config", #selector(reloadConfig)))
-        menu.addItem(item("Copy Tiling Tree (debug)", #selector(copyTree)))
         menu.addItem(.separator())
-        menu.addItem(toggle("Launch at Login", SMAppService.mainApp.status == .enabled, #selector(toggleLaunchAtLogin)))
         menu.addItem(item("Quit Pop Mac", #selector(quit), key: "q"))
     }
 
-    private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+    private func item(_ title: String, _ action: Selector, key: String = "", shortcut: Action? = nil, on: Bool = false) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
-        return item
-    }
-
-    private func toggle(_ title: String, _ on: Bool, _ action: Selector, hint: Action? = nil) -> NSMenuItem {
-        var label = title
-        if let hint, let combo = manager?.settings.combos(for: hint).first {
-            label += "    " + combo.description
-        }
-        let item = item(label, action)
         item.state = on ? .on : .off
+        if let shortcut, let combo = manager?.settings.combos(for: shortcut).first {
+            // Show the global shortcut on the right, like a key equivalent.
+            let attributed = NSMutableAttributedString(string: title + "\t")
+            attributed.append(NSAttributedString(string: combo.description, attributes: [.foregroundColor: NSColor.secondaryLabelColor]))
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.tabStops = [NSTextTab(textAlignment: .right, location: 240)]
+            attributed.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: attributed.length))
+            item.attributedTitle = attributed
+        }
         return item
     }
 
-    private func gapMenu(_ title: String, current: Double, action: Selector) -> NSMenuItem {
-        let parent = NSMenuItem(title: "\(title): \(Int(current)) pt", action: nil, keyEquivalent: "")
-        let sub = NSMenu()
-        for value in [0, 2, 4, 8, 12, 16, 24, 32] {
-            let entry = item("\(value) pt", action)
-            entry.tag = value
-            entry.state = Int(current) == value ? .on : .off
-            sub.addItem(entry)
-        }
-        parent.submenu = sub
-        return parent
+    private func disabled(_ title: String) -> NSMenuItem {
+        NSMenuItem(title: title, action: nil, keyEquivalent: "")
     }
 
-    private static let colorPresets: [(String, String)] = [
-        ("Pop Orange", "#FBB86C"), ("Blue", "#3D8BFD"), ("Teal", "#2BC4B6"), ("Green", "#5CC06E"),
-        ("Purple", "#A77BF3"), ("Pink", "#F06EAA"), ("Red", "#EF5B5B"), ("Graphite", "#8E8E93"),
-    ]
-
-    /// The highlight color: presets, the system accent color, or any color from the color panel.
-    private func colorMenu(current: String) -> NSMenuItem {
-        let parent = NSMenuItem(title: "Highlight Color", action: nil, keyEquivalent: "")
-        let sub = NSMenu()
-        var matched = false
-
-        for (name, hex) in Self.colorPresets {
-            let entry = item(name, #selector(setPresetColor(_:)))
-            entry.representedObject = hex
-            entry.image = swatch(NSColor(hex: hex) ?? .gray)
-            if current.caseInsensitiveCompare(hex) == .orderedSame {
-                entry.state = .on
-                matched = true
-            }
-            sub.addItem(entry)
-        }
-
-        let accent = item("System Accent Color", #selector(setPresetColor(_:)))
-        accent.representedObject = "accent"
-        accent.image = swatch(.controlAccentColor)
-        if current == "accent" {
-            accent.state = .on
-            matched = true
-        }
-        sub.addItem(accent)
-
-        sub.addItem(.separator())
-        let custom = item(matched ? "Custom…" : "Custom (\(current.uppercased()))…", #selector(pickCustomColor))
-        custom.state = matched ? .off : .on
-        if !matched, let color = NSColor(hex: current) { custom.image = swatch(color) }
-        sub.addItem(custom)
-
-        parent.submenu = sub
-        return parent
-    }
-
-    private func swatch(_ color: NSColor) -> NSImage {
-        NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
-            color.setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3).fill()
-            return true
-        }
+    private func warning(_ title: String) -> NSMenuItem {
+        let item = disabled(title)
+        item.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
+        return item
     }
 
     // MARK: - Menu actions
 
-    @objc private func setPresetColor(_ sender: NSMenuItem) {
-        guard let value = sender.representedObject as? String else { return }
-        manager?.update { $0.overlayColor = value }
-        manager?.previewOverlay()
-    }
-
-    @objc private func pickCustomColor() {
-        let panel = NSColorPanel.shared
-        panel.showsAlpha = false
-        panel.isContinuous = true
-        if let manager { panel.color = manager.overlayColor }
-        panel.setTarget(self)
-        panel.setAction(#selector(customColorChanged(_:)))
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-    @objc private func customColorChanged(_ sender: NSColorPanel) {
-        manager?.update { $0.overlayColor = sender.color.hexString }
-        manager?.previewOverlay()
-    }
-
     @objc private func toggleTiling() { manager?.toggleTiling() }
-    @objc private func toggleSmartGaps() { manager?.update { $0.smartGaps.toggle() } }
-    @objc private func toggleCursorFollows() { manager?.update { $0.mouseCursorFollowsActiveWindow.toggle() } }
-    @objc private func toggleSnap() { manager?.update { $0.snapToGrid.toggle() } }
-    @objc private func setInnerGap(_ sender: NSMenuItem) { manager?.update { $0.gapInner = Double(sender.tag) } }
-    @objc private func setOuterGap(_ sender: NSMenuItem) { manager?.update { $0.gapOuter = Double(sender.tag) } }
+    @objc private func toggleFloating() { manager?.toggleFloating() }
     @objc private func openLauncher() { manager?.launcher.open() }
+    @objc private func showWelcome() { welcome.show() }
+
+    @objc private func showSettings() {
+        guard let manager else { return }
+        settingsWindow.show(manager: manager)
+    }
 
     @objc private func showShortcuts() {
         guard let manager else { return }
-        shortcuts.show(settings: manager.settings)
+        settingsWindow.show(manager: manager, tab: .shortcuts)
     }
 
-    @objc private func editConfig() {
-        let url = Settings.defaultURL
-        if !FileManager.default.fileExists(atPath: url.path) {
-            manager?.save()
-        }
-        NSWorkspace.shared.open(url)
+    @objc private func showAbout() {
+        let credits = NSAttributedString(
+            string: "A port of Pop Shell by System76 to macOS.\nLicensed under the GNU GPL v3.",
+            attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
+        )
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 
-    @objc private func reloadConfig() {
-        do {
-            try manager?.reload(Settings.load())
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "The config file is invalid"
-            alert.informativeText = "\(error)"
-            alert.runModal()
+    @objc private func showConfigError() {
+        guard let configError else { return }
+        let alert = NSAlert()
+        alert.messageText = "The config file has an error"
+        alert.informativeText = configError + "\n\nPop Mac keeps the last good settings until the file is fixed."
+        alert.addButton(withTitle: "Open Config File")
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(Settings.defaultURL)
         }
     }
 
@@ -237,18 +216,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openAccessibility() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-    }
-
-    @objc private func toggleLaunchAtLogin() {
-        do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            Log.warn("launch at login failed: \(error)")
-        }
     }
 
     @objc private func quit() {
@@ -297,8 +264,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func reloadConfigIfChanged() {
-        guard let manager, let settings = try? Settings.load(), settings != manager.settings else { return }
-        Log.info("config file changed; reloading")
-        manager.reload(settings)
+        guard let manager else { return }
+        do {
+            let settings = try Settings.load()
+            configError = nil
+            if settings != manager.settings {
+                Log.info("config file changed; reloading")
+                manager.reload(settings)
+            }
+        } catch {
+            configError = Self.describe(error)
+            Log.warn("config file error: \(configError ?? "")")
+        }
+        updateIcon()
+    }
+
+    /// A readable description of a config file error, with the setting it concerns.
+    static func describe(_ error: Error) -> String {
+        guard let error = error as? DecodingError else { return error.localizedDescription }
+        func path(_ context: DecodingError.Context) -> String {
+            let keys = context.codingPath.map { $0.intValue.map { "[\($0)]" } ?? $0.stringValue }
+            return keys.isEmpty ? "The file" : "“" + keys.joined(separator: ".").replacingOccurrences(of: ".[", with: "[") + "”"
+        }
+        switch error {
+        case let .typeMismatch(_, context), let .valueNotFound(_, context):
+            return "\(path(context)) has the wrong type. \(context.debugDescription)"
+        case let .keyNotFound(key, context):
+            return "\(path(context)) is missing “\(key.stringValue)”."
+        case let .dataCorrupted(context):
+            let detail = (context.underlyingError as NSError?)?.userInfo[NSDebugDescriptionErrorKey] as? String
+            return "\(path(context)) is not valid. \(detail ?? context.debugDescription)"
+        @unknown default:
+            return error.localizedDescription
+        }
     }
 }

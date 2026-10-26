@@ -54,7 +54,6 @@ public final class Fork {
     public var area: Rect
     public var workspace: WorkspaceKey
     public var lengthLeft: Double
-    public var prevLengthLeft: Double
     public var prevRatio: Double = 0.5
     public var orientation: Orientation
     var orientationChanged = false
@@ -75,7 +74,6 @@ public final class Fork {
         self.workspace = workspace
         self.orientation = orientation
         lengthLeft = orientation == .horizontal ? area.width / 2 : area.height / 2
-        prevLengthLeft = lengthLeft
         forest.adopt(left, into: self)
         if let right { forest.adopt(right, into: self) }
     }
@@ -113,7 +111,6 @@ public final class Fork {
     public func setRatio(_ leftLength: Double) -> Fork {
         let minimum = min(256, length / 4)
         let clamped = max(minimum, min(length - minimum, leftLength)).rounded()
-        prevLengthLeft = clamped
         lengthLeft = clamped
         return self
     }
@@ -149,13 +146,6 @@ public final class Fork {
         } else {
             nToggled += 1
         }
-    }
-
-    /// Finds the branch that holds the window.
-    public func findBranch(_ window: WindowID) -> Node? {
-        if left.isWindow(window) { return left }
-        if let right, right.isWindow(window) { return right }
-        return nil
     }
 
     /// Moves the split so that both branches get at least their minimum length.

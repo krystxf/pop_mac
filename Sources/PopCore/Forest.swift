@@ -112,19 +112,6 @@ public final class Forest {
         toplevels[key]
     }
 
-    /// Moves a top-level fork to another workspace key.
-    public func rekeyToplevel(_ fork: Fork, to key: WorkspaceKey) {
-        guard fork.isToplevel else { return }
-        if toplevels[fork.workspace] === fork {
-            toplevels.removeValue(forKey: fork.workspace)
-        }
-        fork.workspace = key
-        for node in iter(fork) {
-            if case let .fork(f) = node { f.workspace = key }
-        }
-        toplevels[key] = fork
-    }
-
     /// The top-level fork that a fork belongs to.
     public func toplevel(of fork: Fork) -> Fork {
         var current = fork
@@ -336,17 +323,6 @@ public final class Forest {
     private func reassignChildrenToParent(_ fork: Fork, child: Fork) {
         fork.left = child.left
         fork.right = child.right
-        deleteFork(child)
-    }
-
-    /// Replaces a fork with one of its branches in the fork's parent.
-    public func reassignToParent(_ child: Fork, _ node: Node) {
-        guard let parent = child.parent else { return }
-        if parent.left.isFork(child) {
-            parent.left = node
-        } else {
-            parent.right = node
-        }
         deleteFork(child)
     }
 

@@ -98,7 +98,4 @@ final class HotkeyManager {
     func unregisterAll() {
         handlers.removeAll()
     }
-
-    /// False if macOS refused the tap, for example without Accessibility access.
-    var isActive: Bool { tap != nil }
 }

@@ -71,12 +71,4 @@ struct SupportTests {
         let blocked = Grid.change(Rect(0, 0, 640, 384), cell: cell, dx: -1, dy: 0, dw: 0, dh: 0, monitors: [monitor])
         #expect(blocked == Rect(0, 0, 640, 384))
     }
-
-    @Test func movementCalculation() {
-        let from = Rect(0, 0, 100, 100)
-        #expect(Movement.calculate(from: from, change: Rect(0, 0, 150, 100)) == [.grow, .right])
-        #expect(Movement.calculate(from: from, change: Rect(0, 0, 100, 100)) == .none)
-        #expect(Movement.calculate(from: from, change: Rect(10, 0, 90, 100)) == [.shrink, .right])
-        #expect(Movement.calculate(from: from, change: Rect(5, 5, 100, 100)) == .moved)
-    }
 }

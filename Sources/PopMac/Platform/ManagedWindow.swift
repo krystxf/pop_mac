@@ -71,17 +71,8 @@ final class ManagedWindow {
         }
     }
 
-    /// Raises the window above its application's other windows, without focus.
-    func raise() {
-        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-    }
-
     func minimize() {
         AX.set(element, kAXMinimizedAttribute, kCFBooleanTrue)
-    }
-
-    func unminimize() {
-        AX.set(element, kAXMinimizedAttribute, kCFBooleanFalse)
     }
 
     func close() {
