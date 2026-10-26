@@ -175,12 +175,13 @@ final class Launcher: NSObject {
 
         var scored: [(Double, Item)] = []
 
+        // Open windows rank above apps, like in Pop Shell's launcher.
         for window in manager?.activeWindowList() ?? [] {
             let title = window.title.isEmpty ? window.appName : window.title
             let haystack = "\(window.appName) \(window.title)"
             let score = text.isEmpty ? 1 : Fuzzy.score(text, haystack)
             if score > 0 {
-                scored.append((score + 0.5, Item(kind: .window(window.id), title: title, subtitle: window.appName, icon: window.app.icon)))
+                scored.append((score + 10, Item(kind: .window(window.id), title: title, subtitle: window.appName, icon: window.app.icon)))
             }
         }
 
