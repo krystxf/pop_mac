@@ -51,7 +51,8 @@ enum SpaceMover {
 
         func key(_ code: Int, down: Bool) {
             let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(code), keyDown: down)
-            event?.flags = .maskControl
+            // Real arrow keys carry the fn and keypad flags, and the system shortcut requires them.
+            event?.flags = [.maskControl, .maskSecondaryFn, .maskNumericPad]
             event?.post(tap: .cghidEventTap)
         }
 

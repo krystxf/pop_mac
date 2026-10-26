@@ -63,6 +63,12 @@ final class ManagedWindow {
         AX.set(element, kAXMainAttribute, kCFBooleanTrue)
         AX.set(appElement, kAXFrontmostAttribute, kCFBooleanTrue)
         app.activate(options: [])
+        // Some apps (Finder) focus another element when they activate. Raise again after that.
+        let element = self.element
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+            AX.set(element, kAXMainAttribute, kCFBooleanTrue)
+        }
     }
 
     /// Raises the window above its application's other windows, without focus.
