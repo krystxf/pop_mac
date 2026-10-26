@@ -179,7 +179,7 @@ final class WindowManager {
 
         observers[pid] = observer
         for element in observer.windows() {
-            if let window = register(element, observer), attempt > 0 || autoTiler != nil {
+            if let window = register(element, observer) {
                 autoTileIfNeeded(window.id)
             }
         }
@@ -201,7 +201,8 @@ final class WindowManager {
         if let existing = windows[id] { return existing }
 
         let window = ManagedWindow(id: id, element: element, app: observer.app, appElement: observer.element)
-        guard window.isStandard else { return nil }
+        // Minimized windows report the dialog subrole until they are restored.
+        guard window.isStandard || (window.role == kAXWindowRole && window.isMinimized) else { return nil }
 
         windows[id] = window
         observer.watch(element)
@@ -238,7 +239,12 @@ final class WindowManager {
             if let id = lookup(element, pid: pid) { onDestroy(id) }
 
         case .focusedWindowChanged(let element):
-            let id = lookup(element, pid: pid) ?? register(element, observer)?.id
+            var id = lookup(element, pid: pid)
+            if id == nil, let window = register(element, observer) {
+                // A window that was not standard when it was created.
+                id = window.id
+                autoTileIfNeeded(window.id)
+            }
             if let id, let window = windows[id], NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
                 onFocused(window)
             }

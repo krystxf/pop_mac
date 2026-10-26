@@ -1,5 +1,6 @@
 import AppKit
 import PopCore
+import ServiceManagement
 
 /// The menu bar app, the macOS counterpart of Pop Shell's top bar indicator.
 @MainActor
@@ -110,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Reload Config", #selector(reloadConfig)))
         menu.addItem(item("Copy Tiling Tree (debug)", #selector(copyTree)))
         menu.addItem(.separator())
+        menu.addItem(toggle("Launch at Login", SMAppService.mainApp.status == .enabled, #selector(toggleLaunchAtLogin)))
         menu.addItem(item("Quit Pop Mac", #selector(quit), key: "q"))
     }
 
@@ -198,6 +200,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openAccessibility() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            Log.warn("launch at login failed: \(error)")
+        }
     }
 
     @objc private func quit() {

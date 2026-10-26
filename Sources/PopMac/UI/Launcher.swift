@@ -67,6 +67,7 @@ final class Launcher: NSObject {
     }
 
     func close(restoreFocus: Bool) {
+        guard panel.isVisible else { return }
         panel.orderOut(nil)
         if restoreFocus { NSApp.hide(nil) }
     }

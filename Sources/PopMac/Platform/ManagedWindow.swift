@@ -58,9 +58,10 @@ final class ManagedWindow {
 
     /// Raises the window and gives it keyboard focus.
     func focus() {
-        AX.set(appElement, kAXFrontmostAttribute, kCFBooleanTrue)
-        AX.set(element, kAXMainAttribute, kCFBooleanTrue)
+        // Raise first, so the application keeps this window as its key window.
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        AX.set(element, kAXMainAttribute, kCFBooleanTrue)
+        AX.set(appElement, kAXFrontmostAttribute, kCFBooleanTrue)
         app.activate(options: [])
     }
 
