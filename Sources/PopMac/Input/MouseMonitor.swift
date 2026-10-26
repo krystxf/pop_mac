@@ -122,9 +122,11 @@ final class MouseMonitor {
                   let bounds = CGRect(dictionaryRepresentation: boundsDict)
             else { continue }
             let rect = Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height))
-            if rect.inset(by: -Self.grabMargin).contains(cursor) {
-                result[id] = rect
-            }
+            guard rect.inset(by: -Self.grabMargin).contains(cursor) else { continue }
+            // In Mission Control the window list shows thumbnails, not the real frames.
+            // Dragging a thumbnail is not a window drag.
+            guard let frame = manager.windows[id]?.frame, frame.approximatelyEquals(rect, tolerance: 4) else { continue }
+            result[id] = rect
         }
         return result
     }

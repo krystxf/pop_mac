@@ -49,6 +49,11 @@ final class WindowManager {
     private var snapBackScheduled = false
     private var verifyScheduled = false
     private var spaceScanScheduled = false
+    private var departureTimer: Timer?
+    /// How many checks in a row found each tiled window off screen.
+    private var offscreenStrikes: [WindowID: Int] = [:]
+    /// How many checks in a row found each tilable window on screen but untiled.
+    private var untiledStrikes: [WindowID: Int] = [:]
 
     init(settings: Settings) {
         self.settings = settings
@@ -85,6 +90,10 @@ final class WindowManager {
         let mouse = MouseMonitor(manager: self)
         mouse.start()
         self.mouse = mouse
+
+        departureTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkDepartedWindows() }
+        }
         Log.info("started with \(windows.count) windows")
     }
 
@@ -475,6 +484,52 @@ final class WindowManager {
                 self?.scanVisibleWindows()
             }
         }
+    }
+
+    /// Keeps the trees in step with windows that moved between Spaces.
+    ///
+    /// Mission Control and the window menu can move a window to another Space
+    /// without a Space switch, and without any event for it.
+    /// - A window that left is still in the tree of a visible Space, but no
+    ///   longer on screen. It leaves the tree, so the others fill its tile.
+    /// - A window that arrived is on screen, but in no tree. It gets tiled.
+    ///
+    /// Both must hold on two checks in a row, because windows also leave and
+    /// enter the screen for a moment while a Space switch animates.
+    private func checkDepartedWindows() {
+        guard let autoTiler, NSEvent.pressedMouseButtons & 1 == 0, !SpaceMover.isMoving else { return }
+
+        let visible = Set(Displays.onScreenWindowIDs())
+        let visibleKeys = Set(displays.map { currentKey(of: $0) })
+        var strikes: [WindowID: Int] = [:]
+
+        for (id, fork) in autoTiler.attached where !visible.contains(id) {
+            guard let window = windows[id], !window.isMinimized, !window.isHidden,
+                  visibleKeys.contains(autoTiler.forest.toplevel(of: fork).workspace)
+            else { continue }
+
+            let count = (offscreenStrikes[id] ?? 0) + 1
+            if count >= 2 {
+                Log.debug("window \(id) left the visible Space; untiling it")
+                detachQuietly(id)
+            } else {
+                strikes[id] = count
+            }
+        }
+        offscreenStrikes = strikes
+
+        var untiled: [WindowID: Int] = [:]
+        for id in visible where windows[id] != nil && !autoTiler.isAttached(id) {
+            guard !floating.contains(id), minimizedAttachments[id] == nil, isTilable(id) else { continue }
+            let count = (untiledStrikes[id] ?? 0) + 1
+            if count >= 2 {
+                Log.debug("window \(id) arrived on the visible Space; tiling it")
+                autoTileIfNeeded(id)
+            } else {
+                untiled[id] = count
+            }
+        }
+        untiledStrikes = untiled
     }
 
     /// Finds new windows on the visible Spaces, and fixes windows that changed Space.
