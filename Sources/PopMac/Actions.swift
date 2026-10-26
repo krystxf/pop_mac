@@ -239,11 +239,12 @@ extension WindowManager {
               let display = Displays.display(for: frame, in: displays)
         else { return }
 
-        if maximized.removeValue(forKey: focused.id) != nil || frame.approximatelyEquals(display.workArea, tolerance: 4) {
+        let saved = maximized.removeValue(forKey: focused.id)
+        if saved != nil || frame.approximatelyEquals(display.workArea, tolerance: 4) {
             if autoTiler?.isAttached(focused.id) == true {
                 autoTiler?.reflow(focused.id)
-            } else if let prev = prevRect[focused.id] {
-                focused.setFrame(prev)
+            } else if let previous = saved ?? prevRect[focused.id] {
+                focused.setFrame(previous)
             }
         } else {
             maximized[focused.id] = frame

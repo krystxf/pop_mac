@@ -34,7 +34,7 @@ final class MouseMonitor {
     private func mouseDown() {
         grab = nil
         dragging = false
-        guard let manager, let id = windowUnderCursor(), let window = manager.windows[id], let rect = window.frame else { return }
+        guard !SpaceMover.isMoving, let manager, let id = windowUnderCursor(), let window = manager.windows[id], let rect = window.frame else { return }
         grab = (id, rect)
     }
 

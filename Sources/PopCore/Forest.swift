@@ -26,6 +26,9 @@ public final class Forest {
     /// Window positions that were calculated, but not yet applied.
     public var requested: [(WindowID, Rect)] = []
 
+    /// The tile that each window was last measured into.
+    public private(set) var tileRects: [WindowID: Rect] = [:]
+
     /// Stacks whose tab bars must be redrawn.
     public var stackUpdates: [StackNode] = []
 
@@ -68,10 +71,12 @@ public final class Forest {
     /// Removes the window's attachment record, and returns its previous fork.
     @discardableResult
     public func takeAttached(_ window: WindowID) -> Fork? {
-        attached.removeValue(forKey: window)
+        tileRects.removeValue(forKey: window)
+        return attached.removeValue(forKey: window)
     }
 
     func record(_ window: WindowID, _ rect: Rect) {
+        tileRects[window] = rect
         if let idx = requested.firstIndex(where: { $0.0 == window }) {
             requested[idx].1 = rect
         } else {
@@ -327,10 +332,15 @@ public final class Forest {
             removeFromStack(stack, window: window) {
                 stackDetach = false
                 if let right = fork.right {
-                    fork.left = right
-                    fork.right = nil
                     if let parent {
+                        fork.left = right
+                        fork.right = nil
                         reflow = reassignChildToParent(child: fork, parent: parent, branch: fork.left)
+                    } else if case .fork(let child) = right {
+                        reassignChildrenToParent(fork, child: child)
+                    } else {
+                        fork.left = right
+                        fork.right = nil
                     }
                 } else {
                     deleteFork(fork)
@@ -357,6 +367,8 @@ public final class Forest {
                     fork.right = nil
                     if let parent {
                         reflow = reassignChildToParent(child: fork, parent: parent, branch: fork.left)
+                    } else if case .fork(let child) = fork.left {
+                        reassignChildrenToParent(fork, child: child)
                     }
                 }
             }

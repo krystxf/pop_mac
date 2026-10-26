@@ -109,6 +109,12 @@ public final class AutoTiler {
 
     /// Makes the window the only tile of a new tree on a display.
     public func attachToMonitor(_ window: WindowID, key: WorkspaceKey) {
+        // A workspace has one tree. Never replace a tree that still holds windows.
+        if let top = forest.findToplevel(key),
+           let onto = forest.windows(in: top).first(where: { $0 != window }),
+           attachToWindow(onto, window, moveBy: .auto) {
+            return
+        }
         guard var rect = env.workArea(key.monitor) else { return }
         let smart = env.smartGaps
         if !smart {
@@ -133,7 +139,8 @@ public final class AutoTiler {
     /// Tiles a window onto the largest window of a workspace, or onto the display.
     public func attachToWorkspace(_ window: WindowID, key: WorkspaceKey) {
         if let top = forest.findToplevel(key),
-           let onto = forest.largestWindow(in: top, rect: tilableRect),
+           let onto = forest.largestWindow(in: top, rect: tilableRect)
+               ?? forest.windows(in: top).first(where: { $0 != window }),
            attachToWindow(onto, window, moveBy: .auto) {
             return
         }
@@ -309,6 +316,7 @@ public final class AutoTiler {
             fork.left = .stack(forest.createStack(window: window, workspace: fork.workspace))
         } else if let s = fork.left.stack, s.contains(window) {
             if s.entities.count == 1 {
+                s.entities.removeAll()
                 fork.left = .window(window)
                 if fork.right == nil {
                     forest.reassignToParent(fork, fork.left)
@@ -318,6 +326,7 @@ public final class AutoTiler {
             fork.right = .stack(forest.createStack(window: window, workspace: fork.workspace))
         } else if let s = fork.right?.stack, s.contains(window) {
             if s.entities.count == 1 {
+                s.entities.removeAll()
                 fork.right = .window(window)
             }
         }
@@ -467,8 +476,12 @@ public final class AutoTiler {
     /// Right and down grow the window. Left and up shrink it.
     public func resizeAuto(_ window: WindowID, direction: Direction, step: Double = 64) {
         guard let fork = forest.attached[window],
-              var crect = env.windowRect(window)
+              var crect = forest.tileRects[window] ?? env.windowRect(window)
         else { return }
+        if findStack(window) != nil {
+            crect.y -= forest.tabHeight
+            crect.height += forest.tabHeight
+        }
 
         let toparea = forest.toplevel(of: fork).area
         var grabRect = crect
@@ -501,16 +514,22 @@ public final class AutoTiler {
     }
 
     /// Applies a resize that the user made with the mouse.
-    public func resizeByMouse(_ window: WindowID, from original: Rect, to crect: Rect) {
+    public func resizeByMouse(_ window: WindowID, from frame: Rect, to newFrame: Rect) {
         guard let fork = forest.attached[window] else { return }
-        var crect = crect
+        // The tile can be larger than the window, for example with a maximum width.
+        // Move the tile's edges by as much as the window's edges moved.
+        var original = forest.tileRects[window] ?? frame
+        let x = original.x + (newFrame.x - frame.x)
+        let y = original.y + (newFrame.y - frame.y)
+        let maxX = original.maxX + (newFrame.maxX - frame.maxX)
+        let maxY = original.maxY + (newFrame.maxY - frame.maxY)
+        var crect = Rect(x, y, maxX - x, maxY - y)
         if findStack(window) != nil {
             crect.y -= forest.tabHeight
             crect.height += forest.tabHeight
         }
         crect.clamp(forest.toplevel(of: fork).area)
 
-        var original = original
         if findStack(window) != nil {
             original.y -= forest.tabHeight
             original.height += forest.tabHeight
@@ -718,6 +737,13 @@ public final class AutoTiler {
         case stack(fork: Fork, stack: StackNode)
     }
 
+    /// The workspace that an attachment belongs to.
+    public func workspace(of attachment: Attachment) -> WorkspaceKey {
+        switch attachment {
+        case .branch(let fork, _), .stack(let fork, _): return forest.toplevel(of: fork).workspace
+        }
+    }
+
     public func attachment(of window: WindowID) -> Attachment? {
         guard let fork = forest.attached[window] else { return nil }
         if let (f, s, _) = findStack(window) { return .stack(fork: f, stack: s) }
@@ -732,11 +758,12 @@ public final class AutoTiler {
         case .branch(let fork, let isLeft):
             guard !fork.isDeleted else { return false }
             forest.attachFork(fork, window: window, isLeft: isLeft)
+            unsmartGap(forest.toplevel(of: fork))
             retile(fork)
             return true
         case .stack(let fork, let stack):
             guard !fork.isDeleted, !stack.entities.isEmpty, let member = stack.entities.first,
-                  let (f, _, _) = findStack(member)
+                  let (f, current, _) = findStack(member), current === stack
             else { return false }
             forest.attachStack(stack, fork: f, window: window, stackFromLeft: true)
             retile(f)

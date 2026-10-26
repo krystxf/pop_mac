@@ -451,7 +451,10 @@ final class WindowManager {
                 autoTiler.detachWindow(id)
             }
         } else if !floating.contains(id), !autoTiler.isAttached(id), isTilable(id) {
-            if let attachment = minimizedAttachments.removeValue(forKey: id), autoTiler.restore(id, to: attachment) {
+            // Return to the old place, unless the window came back on another Space.
+            if let attachment = minimizedAttachments.removeValue(forKey: id),
+               autoTiler.workspace(of: attachment) == actualKey(of: id),
+               autoTiler.restore(id, to: attachment) {
                 return
             }
             autoTiler.autoTile(id)
@@ -489,7 +492,9 @@ final class WindowManager {
                 guard windows[id] != nil else { continue }
                 if let fork = autoTiler.attached[id] {
                     let key = autoTiler.forest.toplevel(of: fork).workspace
-                    if let actual = actualKey(of: id), actual != key {
+                    if !isTilable(id) {
+                        detachQuietly(id)
+                    } else if let actual = actualKey(of: id), actual != key {
                         Log.debug("window \(id) moved from \(key) to \(actual)")
                         detachQuietly(id)
                         autoTiler.attachToWorkspace(id, key: actual)
@@ -539,8 +544,14 @@ final class WindowManager {
         guard let window = windows[id], let frame = window.frame,
               let display = Displays.display(for: frame, in: displays)
         else { return nil }
-        let space = Spaces.space(of: id) ?? Displays.currentSpace(of: display)
-        return WorkspaceKey(monitor: display.id, space: space)
+        // After a window crosses displays, macOS can still report its old display's Space.
+        // Trust the reported Space only if it belongs to the window's display.
+        let all = Spaces.allSpaces()
+        let spacesOfDisplay = all[display.uuid] ?? all["Main"] ?? []
+        if let space = Spaces.space(of: id), spacesOfDisplay.contains(space) {
+            return WorkspaceKey(monitor: display.id, space: space)
+        }
+        return WorkspaceKey(monitor: display.id, space: Displays.currentSpace(of: display))
     }
 
     // MARK: - Tiling state
@@ -603,6 +614,7 @@ final class WindowManager {
     }
 
     private func onTileAttach(_ id: WindowID) {
+        maximized.removeValue(forKey: id)
         if let rect = pendingRestore.removeValue(forKey: id) {
             prevRect[id] = rect
         } else if prevRect[id] == nil, let frame = windows[id]?.frame {
@@ -612,6 +624,7 @@ final class WindowManager {
 
     /// Returns a window to its pre-tiling frame, unless it is re-attached in the same turn.
     private func onTileDetach(_ id: WindowID) {
+        maximized.removeValue(forKey: id)
         guard let rect = prevRect.removeValue(forKey: id) else { return }
         pendingRestore[id] = rect
         guard !restoreScheduled else { return }
@@ -757,6 +770,7 @@ final class WindowManager {
         overlay.hide()
         guard let window = windows[id], let current = window.frame else { return }
         if current.approximatelyEquals(original, tolerance: 1) { return }
+        maximized.removeValue(forKey: id)
 
         guard let autoTiler else {
             if settings.snapToGrid { snap(window) }
@@ -869,7 +883,9 @@ extension WindowManager: @preconcurrency TilingEnvironment {
                 let pending = self.pendingVerify
                 self.pendingVerify.removeAll()
                 for (id, target) in pending {
+                    // Skip windows that left the tree or got a new tile meanwhile.
                     guard let window = self.windows[id], self.maximized[id] == nil,
+                          self.autoTiler?.isAttached(id) == true, self.lastApplied[id] == target,
                           let frame = window.frame, !frame.approximatelyEquals(target, tolerance: 2)
                     else { continue }
                     Log.debug("window \(id) missed its frame \(target), got \(frame); retrying")

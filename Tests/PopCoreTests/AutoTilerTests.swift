@@ -181,6 +181,31 @@ final class FakeEnv: TilingEnvironment {
         #expect(env.rects[1] == Rect(0, 0, 800, 1000))
     }
 
+    @Test func restoreIntoReplacedStackFails() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleStacking(2)
+        env.open(tiler, 3)
+        let attachment = tiler.attachment(of: 2)!
+        tiler.detachWindow(2)
+        // Unstack 3, then stack it again: the old stack is gone.
+        tiler.toggleStacking(3)
+        tiler.toggleStacking(3)
+        #expect(!tiler.restore(2, to: attachment))
+        #expect(!tiler.isAttached(2))
+    }
+
+    @Test func untilableTreeIsNotReplaced() {
+        env.open(tiler, 1)
+        // Window 1 stops answering, so it has no frame.
+        env.rects[1] = nil
+        env.rects[2] = Rect(0, 0, 100, 100)
+        env.keys[2] = env.key
+        tiler.autoTile(2, ignoreFocus: true)
+        #expect(tiler.forest.toplevels.count == 1)
+        #expect(tiler.forest.toplevel(of: tiler.attached[1]!) === tiler.forest.toplevel(of: tiler.attached[2]!))
+    }
+
     @Test func replaceKeepsTheTile() {
         env.open(tiler, 1)
         env.open(tiler, 2)
