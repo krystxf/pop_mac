@@ -36,6 +36,12 @@ func diagnose() {
     }
 }
 
+if CommandLine.arguments.contains("--version") {
+    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development build"
+    print("Pop Mac \(version)")
+    exit(0)
+}
+
 let app = NSApplication.shared
 if CommandLine.arguments.contains("--diagnose") {
     MainActor.assumeIsolated { diagnose() }

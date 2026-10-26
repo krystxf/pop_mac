@@ -80,7 +80,9 @@ jobs:
       # Launches the app without touching windows. A private API symbol that is
       # missing on this macOS version makes dyld fail here.
       - name: Smoke test
-        run: build/PopMac.app/Contents/MacOS/PopMac --diagnose
+        run: |
+          build/PopMac.app/Contents/MacOS/PopMac --version
+          build/PopMac.app/Contents/MacOS/PopMac --diagnose
 
       - name: Package app
         run: ditto -c -k --keepParent build/PopMac.app PopMac.zip

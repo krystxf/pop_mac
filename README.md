@@ -25,15 +25,29 @@ Pop Shell's window stacking is not included.
 
 ## Install
 
-You need macOS 13 or later and the Swift toolchain (Xcode or the Command Line Tools).
+Pop Mac needs macOS 13 or later.
+
+### Homebrew
+
+```sh
+brew install krystxf/tap/pop-mac
+open "$(brew --prefix)/opt/pop-mac/PopMac.app"
+```
+
+Homebrew builds Pop Mac from source, so it needs Xcode 16 or later.
+To start Pop Mac at login, run `brew services start pop-mac`, or use **Launch at Login** in its menu bar menu.
+
+To update, run `brew upgrade pop-mac`. To install the latest commit instead of the latest release, run
+`brew install --HEAD krystxf/tap/pop-mac`.
+
+### From source
+
+You need the Swift toolchain (Xcode or the Command Line Tools).
 
 ```sh
 make install          # builds build/PopMac.app and copies it to ~/Applications
 open ~/Applications/PopMac.app
 ```
-
-On the first start, macOS asks for Accessibility access.
-Grant it in System Settings > Privacy & Security > Accessibility. Pop Mac starts when access is granted.
 
 The build signs the app with the first "Apple Development" certificate in your keychain.
 A stable signature keeps the Accessibility access across rebuilds.
@@ -43,10 +57,15 @@ To pick another certificate, set `SIGN_IDENTITY` to its name or SHA-1 hash:
 SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" make install
 ```
 
-Without a certificate, the build signs ad-hoc. The ad-hoc signature changes on every build,
-so macOS asks for Accessibility access again after each rebuild.
+Without a certificate, the build signs ad-hoc.
 
-Use **Launch at Login** in the menu bar menu to start Pop Mac automatically.
+### Accessibility access
+
+On the first start, macOS asks for Accessibility access.
+Grant it in System Settings > Privacy & Security > Accessibility. Pop Mac starts when access is granted.
+
+An ad-hoc signature changes with every build, including every Homebrew upgrade.
+macOS then asks for access again: remove the old "PopMac" entry from the Accessibility list, and allow the new one.
 
 ### Recommended macOS settings
 
