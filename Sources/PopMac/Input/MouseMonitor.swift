@@ -87,8 +87,8 @@ final class MouseMonitor {
             else { continue }
             let rect = Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height))
             guard rect.contains(cursor) else { continue }
-            // Clicks on our own tab bars are not window grabs.
-            if (entry[kCGWindowOwnerPID as String] as? Int32) == ownPID { return nil }
+            // Skip Pop Mac's own windows. The active hint covers the focused window.
+            if (entry[kCGWindowOwnerPID as String] as? Int32) == ownPID { continue }
             return (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value
         }
         return nil

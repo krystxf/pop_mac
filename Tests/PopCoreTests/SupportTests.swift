@@ -30,7 +30,7 @@ import Testing
     }
 
     @Test func floatRulesMatch() {
-        #expect(FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "Calculator", userRules: []))
+        #expect(!FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "Calculator", userRules: []))
         #expect(!FloatRules.windowShallFloat(appName: "Terminal", bundleID: "com.apple.Terminal", title: "zsh", userRules: []))
         let rules = [FloatRule(app: "Terminal")]
         #expect(FloatRules.windowShallFloat(appName: "Terminal", bundleID: "com.apple.Terminal", title: "zsh", userRules: rules))

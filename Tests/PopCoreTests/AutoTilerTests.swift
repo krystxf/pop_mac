@@ -181,6 +181,19 @@ final class FakeEnv: TilingEnvironment {
         #expect(env.rects[1] == Rect(0, 0, 800, 1000))
     }
 
+    @Test func replaceKeepsTheTile() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        let tile = env.rects[2]
+        env.rects[3] = Rect(0, 0, 10, 10)
+        env.keys[3] = env.key
+        #expect(tiler.replace(2, with: 3))
+        #expect(env.rects[3] == tile)
+        #expect(!tiler.isAttached(2))
+        #expect(tiler.isAttached(3))
+        #expect(!tiler.replace(2, with: 3))
+    }
+
     @Test func moveToOtherMonitor() {
         env.screens[2] = Rect(1600, 0, 1000, 800)
         env.open(tiler, 1)

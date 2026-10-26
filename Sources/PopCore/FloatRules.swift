@@ -43,30 +43,9 @@ public struct FloatRule: Codable, Equatable {
 }
 
 public enum FloatRules {
-    /// Windows that should float by default on macOS.
-    public static let defaults: [FloatRule] = [
-        FloatRule(app: "^com\\.apple\\.systempreferences$"),
-        FloatRule(app: "^com\\.apple\\.calculator$"),
-        FloatRule(app: "^com\\.apple\\.archiveutility$"),
-        FloatRule(app: "^com\\.apple\\.ScreenSharing$"),
-        FloatRule(app: "^com\\.apple\\.DigitalColorMeter$"),
-        FloatRule(app: "^com\\.apple\\.Stickies$"),
-        FloatRule(app: "^com\\.apple\\.PhotoBooth$"),
-        FloatRule(app: "^com\\.apple\\.ColorSyncUtility$"),
-        FloatRule(app: "^com\\.apple\\.SystemProfiler$"),
-        FloatRule(app: "^com\\.apple\\.FaceTime$"),
-        FloatRule(app: "^com\\.apple\\.finder$", title: "^(Copy|Move|Info|.* Info)$"),
-        FloatRule(app: "^com\\.apple\\.Safari$", title: "^(Downloads|Settings|Preferences)$"),
-        FloatRule(app: "^com\\.1password"),
-        FloatRule(app: "^com\\.raycast\\.macos$"),
-        FloatRule(app: "^com\\.runningwithcrayons\\.Alfred"),
-        FloatRule(app: "^us\\.zoom\\.xos$"),
-        FloatRule(app: "^org\\.mozilla\\.firefox$", title: "^(Library|Picture-in-Picture)$"),
-        FloatRule(app: "^com\\.google\\.Chrome$", title: "^Picture in Picture$"),
-        FloatRule(app: "^com\\.jetbrains\\.toolbox$"),
-        FloatRule(title: "^(Preferences|Settings)$"),
-        FloatRule(title: "^Picture[- ]in[- ]Picture$"),
-    ]
+    /// Built-in float rules. Empty: every standard window tiles, unless the user adds a rule
+    /// or floats a window with toggle-floating.
+    public static let defaults: [FloatRule] = []
 
     /// Returns true if the window should float.
     ///

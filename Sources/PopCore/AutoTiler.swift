@@ -263,6 +263,38 @@ public final class AutoTiler {
         }
     }
 
+    /// Puts `new` in the place of `old`, which leaves the tree without a reflow of its neighbors.
+    ///
+    /// Used for native macOS tabs: each tab is a window, and only the selected one is shown.
+    @discardableResult
+    public func replace(_ old: WindowID, with new: WindowID) -> Bool {
+        guard old != new, let fork = forest.attached[old], forest.attached[new] == nil else { return false }
+
+        func replaceIn(_ node: Node) -> Node? {
+            if node.isWindow(old) { return .window(new) }
+            if let s = node.stack, let i = s.entities.firstIndex(of: old) {
+                s.entities[i] = new
+                if s.active == old { s.active = new }
+                return node
+            }
+            return nil
+        }
+
+        forest.takeAttached(old)
+        if let node = replaceIn(fork.left) {
+            fork.left = node
+        } else if let right = fork.right, let node = replaceIn(right) {
+            fork.right = node
+        } else {
+            forest.setAttached(old, fork)
+            return false
+        }
+        // A stack keeps its node, so record the new member by hand.
+        forest.setAttached(new, fork)
+        retile(fork)
+        return true
+    }
+
     // MARK: - Stacking
 
     /// Toggles stacking for the window's branch.

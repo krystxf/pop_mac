@@ -39,6 +39,14 @@ final class WindowManager {
     var tileMode: TileMode?
     private var hintScheduled = false
     private var pendingVerify: [WindowID: Rect] = [:]
+    /// When Pop Mac last moved each window, so the window's own move events can be ignored.
+    private var lastSet: [WindowID: Date] = [:]
+    /// The tile that each window last received.
+    private var lastApplied: [WindowID: Rect] = [:]
+    /// Tiled windows that were just closed. A native tab of the same app may take their tile.
+    private var closingTabs: [WindowID: (pid: pid_t, frame: Rect)] = [:]
+    private var snapBackPending = Set<WindowID>()
+    private var snapBackScheduled = false
     private var verifyScheduled = false
     private var stacksScheduled = false
     private var spaceScanScheduled = false
@@ -271,6 +279,11 @@ final class WindowManager {
             if let id = lookup(element, pid: pid) {
                 if id == prevFocused[1] { scheduleHint() }
                 if autoTiler?.findStack(id) != nil { scheduleStacksRefresh() }
+                // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
+                if autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
+                   Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5 {
+                    scheduleSnapBack(id)
+                }
             }
 
         case .titleChanged(let element):
@@ -300,9 +313,74 @@ final class WindowManager {
         autoTileIfNeeded(window.id)
     }
 
+    /// Tiles a window that is not in the tree yet.
+    ///
+    /// A native tab takes the tile of the tab it replaced on screen.
     private func autoTileIfNeeded(_ id: WindowID) {
-        guard let autoTiler, !autoTiler.isAttached(id), isTilable(id) else { return }
+        guard let autoTiler, !autoTiler.isAttached(id), isTilable(id), minimizedAttachments[id] == nil else { return }
+        if let sibling = tabSibling(of: id) {
+            Log.debug("window \(id) replaces tab \(sibling)")
+            closingTabs.removeValue(forKey: sibling)
+            autoTiler.replace(sibling, with: id)
+            return
+        }
         autoTiler.autoTile(id, ignoreFocus: false)
+    }
+
+    /// Finds the tiled tab that a window replaced.
+    ///
+    /// macOS shows only the selected tab of a tab group, at the group's frame.
+    /// The replaced tab is either hidden now, or was just closed.
+    private func tabSibling(of id: WindowID) -> WindowID? {
+        guard let autoTiler, let window = windows[id], let frame = window.frame,
+              let key = actualKey(of: id)
+        else { return nil }
+
+        for (other, closing) in closingTabs
+        where closing.pid == window.pid && autoTiler.isAttached(other) && closing.frame.approximatelyEquals(frame, tolerance: 4) {
+            return other
+        }
+
+        let visible = Set(Displays.onScreenWindowIDs())
+        guard visible.contains(id) else { return nil }
+        for other in windows.values where other.id != id && other.pid == window.pid && !visible.contains(other.id) {
+            guard autoTiler.isAttached(other.id), !other.isMinimized, workspaceKey(of: other.id) == key,
+                  let otherFrame = other.frame, otherFrame.approximatelyEquals(frame, tolerance: 4)
+            else { continue }
+            return other.id
+        }
+        return nil
+    }
+
+    /// Moves tiled windows back into their tiles after something else moved them.
+    private func scheduleSnapBack(_ id: WindowID) {
+        snapBackPending.insert(id)
+        guard !snapBackScheduled else { return }
+        snapBackScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.snapBackScheduled = false
+                let ids = self.snapBackPending
+                self.snapBackPending.removeAll()
+                guard let autoTiler = self.autoTiler, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+
+                var tiled = Set<ObjectIdentifier>()
+                for id in ids {
+                    guard let window = self.windows[id], let fork = autoTiler.attached[id] else { continue }
+                    if window.isFullscreen {
+                        // Native full screen moves the window to its own Space.
+                        self.detachQuietly(id)
+                        continue
+                    }
+                    let top = autoTiler.forest.toplevel(of: fork)
+                    if tiled.insert(ObjectIdentifier(top)).inserted {
+                        Log.debug("window \(id) left its tile; snapping back")
+                        autoTiler.tile(top, area: top.area)
+                    }
+                }
+            }
+        }
     }
 
     private func onDestroy(_ id: WindowID) {
@@ -315,8 +393,22 @@ final class WindowManager {
             prevFocused[0] = nil
         }
 
+        let pid = windows[id]?.pid
         windows.removeValue(forKey: id)
-        autoTiler?.detachWindow(id)
+        if let autoTiler, autoTiler.isAttached(id), let pid, let frame = lastApplied[id] {
+            // Wait briefly: if this was a native tab, the next tab takes its tile.
+            closingTabs[id] = (pid, frame)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.closingTabs.removeValue(forKey: id) != nil else { return }
+                    self.autoTiler?.detachWindow(id)
+                }
+            }
+        } else {
+            autoTiler?.detachWindow(id)
+        }
+        lastSet.removeValue(forKey: id)
+        lastApplied.removeValue(forKey: id)
         floating.remove(id)
         forceTile.remove(id)
         maximized.removeValue(forKey: id)
@@ -336,6 +428,8 @@ final class WindowManager {
             scheduleStacksRefresh()
         }
 
+        // Every window that can tile is tiled, for example after leaving full screen.
+        autoTileIfNeeded(window.id)
         scheduleHint()
 
         if settings.logOnFocus {
@@ -743,14 +837,16 @@ extension WindowManager: @preconcurrency TilingEnvironment {
 
     func applyLayout(_ moves: [(WindowID, Rect)]) {
         for (id, rect) in moves {
-            guard let window = windows[id], maximized[id] == nil else { continue }
+            guard let window = windows[id], maximized[id] == nil, !window.isFullscreen else { continue }
             var target = rect.rounded()
             let maxWidth = settings.maxWindowWidth
             if maxWidth > 0 && target.width > maxWidth {
                 target.x += ((target.width - maxWidth) / 2).rounded()
                 target.width = maxWidth
             }
+            lastApplied[id] = target
             if let frame = window.frame, frame.approximatelyEquals(target, tolerance: 1) { continue }
+            lastSet[id] = Date()
             window.setFrame(target)
             pendingVerify[id] = target
         }
@@ -777,6 +873,7 @@ extension WindowManager: @preconcurrency TilingEnvironment {
                           let frame = window.frame, !frame.approximatelyEquals(target, tolerance: 2)
                     else { continue }
                     Log.debug("window \(id) missed its frame \(target), got \(frame); retrying")
+                    self.lastSet[id] = Date()
                     window.setFrame(target)
                 }
                 self.scheduleHint()

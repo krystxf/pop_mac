@@ -14,7 +14,7 @@ It ports Pop Shell's tiling tree, keyboard workflow, tile mode, stacking, and la
 | Stacking (Super + S) with a tab bar | Same. Click a tab to focus its window. |
 | Drag a tiled window to re-tile it, with a drop preview | Same. Drop on an edge to split, or on the center to stack. |
 | Resize a tiled window with the mouse | Same. The neighbors follow. |
-| Toggle floating (Super + G), floating exceptions | Same. Rules match the app name, bundle id, and window title. |
+| Toggle floating (Super + G), floating exceptions | Same. Every standard window tiles by default; only windows you float or match with a rule float. |
 | Toggle auto-tiling (Super + Y) | Same. Windows return to their original frames. |
 | Move window to another display | Same |
 | Move window to another workspace | Moves the window to the previous or next Space (see limitations) |
@@ -140,6 +140,8 @@ macOS restricts what a window manager can do. These parts differ from Pop Shell:
 
 - **Stacks:** macOS cannot hide a single window of another app. Stacked windows overlap in one tile, and the active window is raised above the others.
 - **Spaces:** Pop Mac cannot create Spaces. To move a window to another Space, it drags the window's title bar and presses ⌃← or ⌃→. This depends on the Mission Control shortcuts, and some apps may not respond to it.
+- **Native tabs:** each macOS tab is a window. The selected tab takes the tile of the tab it replaced.
+- **Snap back:** a tiled window that something other than a mouse drag moves returns to its tile.
 - **Minimum sizes:** Some windows refuse to shrink below a minimum size. They can overlap their neighbors.
 - **Animations:** windows move without animation.
 - Pop Mac learns about windows on other Spaces when you first visit those Spaces.
