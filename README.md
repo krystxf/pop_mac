@@ -35,7 +35,7 @@ The menu bar item turns tiling on or off, floats the focused window, opens the l
 | --- | --- |
 | General | Tile automatically, launch at login, move the cursor with keyboard focus, snap floating windows to the grid |
 | Layout | Gaps between windows and at the screen edges, smart gaps, maximum window width |
-| Appearance | The highlight color for tile mode and drop previews |
+| Appearance | A preview of the highlights, and the outline around the focused window |
 | Shortcuts | The keys that Super and Primary stand for, and every shortcut |
 | Floating | Rules for windows that float instead of tile |
 
@@ -139,7 +139,6 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   "gapInner": 8,
   "gapOuter": 8,
   "smartGaps": false,
-  "overlayColor": "#FBB86C",
   "overlayBorderRadius": 10,
   "activeHint": true,
   "activeHintWidth": 3,
@@ -179,8 +178,8 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   - Built-in rules float Google Meet calls (browser windows titled "Meet - …", and the Google Meet web app) and Keka, whose window has a fixed size.
     They come after your rules, so `{ "app": "Keka", "disabled": true }` makes Keka tile.
   - Rules follow window titles: a browser window that switches to a Meet call floats, and tiles again when it switches away.
-- `overlayColor` is the highlight color for stack tabs. Before macOS 26, it also colors tile mode, drop previews, and the active hint: `#RRGGBB`, or `accent` for the system accent color.
-  **Settings > Appearance** sets it too, with presets and a color picker.
+- The selected stack tab uses the system accent color. Before macOS 26, so do tile mode, drop previews, and the active hint.
+- `overlayBorderRadius` rounds the highlights of windows whose own corner radius Pop Mac cannot read.
 - `superDragMovesWindows` lets you hold the Super modifiers and drag anywhere in a window to move it.
   Pop Mac consumes that click, so the app under the cursor does not see it.
 - `activeHint` draws an outline around the focused window. `activeHintWidth` is its width in points.

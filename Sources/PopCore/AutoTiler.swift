@@ -641,8 +641,9 @@ public final class AutoTiler {
 
         // A drop on the center swaps or stacks, so show the target's place.
         if let tile = centerTile(of: target, cursor: cursor) {
+            // A drop back on the window's own stack only puts it back.
             let sameStack = findStack(window).map { $0.stack.contains(target) } ?? false
-            return DropPreview(area: tile, stacks: stack || sameStack)
+            return DropPreview(area: tile, stacks: stack && !sameStack)
         }
 
         let area: Rect
@@ -786,15 +787,15 @@ public final class AutoTiler {
 
     /// The area that the overlay shows while a stack is dragged by its tab bar.
     ///
-    /// The stack keeps its tab bar wherever it lands, so the preview always shows one.
-    public func dropPreview(of stack: StackNode, cursor: Point, key: WorkspaceKey) -> DropPreview? {
+    /// - Parameter merge: True if a drop on a window's center merges instead of swaps.
+    public func dropPreview(of stack: StackNode, cursor: Point, key: WorkspaceKey, merge: Bool = false) -> DropPreview? {
         guard let fork = forest.attached[stack.active] else { return nil }
         if largestOnWorkspace(key) == nil {
-            return outerArea(key.monitor).map { DropPreview(area: $0, stacks: true) }
+            return outerArea(key.monitor).map { DropPreview(area: $0, stacks: false) }
         }
         guard let target = dropTarget(of: stack, cursor: cursor, key: key) else { return nil }
         if let tile = centerTile(of: target, cursor: cursor) {
-            return DropPreview(area: tile, stacks: true)
+            return DropPreview(area: tile, stacks: merge)
         }
         guard let area = forest.attached[target] === fork ? fork.area : env.windowRect(target) else { return nil }
         let (orientation, swap) = cursorPlacement(area: area, cursor: cursor)
@@ -805,7 +806,7 @@ public final class AutoTiler {
         case (.vertical, true): Rect(area.x, area.y, area.width, hh)
         case (.vertical, false): Rect(area.x, area.y + hh, area.width, hh)
         }
-        return DropPreview(area: half, stacks: true)
+        return DropPreview(area: half, stacks: false)
     }
 
     /// Moves a whole stack that the user dropped with the mouse.

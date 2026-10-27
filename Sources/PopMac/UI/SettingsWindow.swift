@@ -438,21 +438,10 @@ private struct LayoutSettings: View {
 private struct AppearanceSettings: View {
     @ObservedObject var model: SettingsModel
 
-    private static let presets: [(String, String)] = [
-        ("Pop Orange", "#FBB86C"), ("Blue", "#3D8BFD"), ("Teal", "#2BC4B6"), ("Green", "#5CC06E"),
-        ("Purple", "#A77BF3"), ("Pink", "#F06EAA"), ("Red", "#EF5B5B"), ("Graphite", "#8E8E93"),
-    ]
-
-    private var color: Color {
-        let value = model.settings.overlayColor
-        if value == "accent" { return Color(nsColor: .controlAccentColor) }
-        return Color(nsColor: NSColor(hex: value) ?? .orange)
-    }
-
     var body: some View {
         Form {
             Section("Preview") {
-                OverlayPreview(color: color, radius: model.settings.overlayBorderRadius)
+                OverlayPreview(radius: model.settings.overlayBorderRadius)
                     .frame(height: 170)
                     .listRowInsets(EdgeInsets())
             }
@@ -462,62 +451,15 @@ private struct AppearanceSettings: View {
             } header: {
                 Text("Active window")
             } footer: {
-                Footnote("The outline is clear glass. Before macOS 26, it uses the highlight color.")
-            }
-
-            Section {
-                Toggle("Use the system accent color", isOn: Binding(
-                    get: { model.settings.overlayColor == "accent" },
-                    set: { useAccent in model.update { $0.overlayColor = useAccent ? "accent" : "#FBB86C" } }
-                ))
-
-                if model.settings.overlayColor != "accent" {
-                    ColorPicker("Custom color", selection: Binding(
-                        get: { color },
-                        set: { newColor in model.update { $0.overlayColor = NSColor(newColor).hexString } }
-                    ), supportsOpacity: false)
-
-                    LabeledContent("Presets") {
-                        presetButtons
-                    }
-                }
-            } header: {
-                Text("Highlight color")
-            } footer: {
-                Footnote("Colors the selected tab of a stack. Before macOS 26, it also shows where a window will go in tile mode and while you drag it.")
+                Footnote("The outline is clear glass. Before macOS 26, it uses the accent color.")
             }
         }
         .formStyle(.grouped)
-    }
-
-    @ViewBuilder
-    private var presetButtons: some View {
-        let buttons = HStack(spacing: 6) {
-            ForEach(Self.presets, id: \.1) { name, hex in
-                let selected = model.settings.overlayColor.caseInsensitiveCompare(hex) == .orderedSame
-                Button {
-                    model.update { $0.overlayColor = hex }
-                } label: {
-                    Circle()
-                        .fill(Color(nsColor: NSColor(hex: hex) ?? .gray).gradient)
-                        .frame(width: 16, height: 16)
-                        .overlay(Circle().stroke(.white, lineWidth: selected ? 2 : 0))
-                }
-                .glassButton()
-                .help(name)
-            }
-        }
-        if #available(macOS 26, *) {
-            GlassEffectContainer(spacing: 6) { buttons }
-        } else {
-            buttons
-        }
     }
 }
 
 /// Two windows on a desktop, with the highlight over the right one.
 private struct OverlayPreview: View {
-    let color: Color
     let radius: Double
 
     var body: some View {
@@ -530,16 +472,23 @@ private struct OverlayPreview: View {
 
             HStack(spacing: 10) {
                 window
-                window.overlay(
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(color.opacity(0.25))
-                        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(color, lineWidth: 3))
-                )
+                window.overlay { highlight }
             }
             .padding(18)
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(10)
+    }
+
+    /// Clear glass on macOS 26 and later, the accent color before, like the real highlight.
+    @ViewBuilder
+    private var highlight: some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        if #available(macOS 26, *) {
+            Color.clear.glassEffect(.clear, in: shape)
+        } else {
+            shape.fill(Color.accentColor.opacity(0.25)).overlay(shape.stroke(Color.accentColor, lineWidth: 3))
+        }
     }
 
     private var window: some View {

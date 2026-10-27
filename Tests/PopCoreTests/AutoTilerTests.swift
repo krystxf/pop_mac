@@ -427,10 +427,11 @@ struct AutoTilerTests {
         #expect(env.rects[4] == env.rects[2])
     }
 
-    @Test func stackDropPreviewShowsTabBar() {
+    @Test func stackDropPreviewStacksOnlyWhenMerging() {
         let stack = openStackBottomRight()
-        let preview = tiler.dropPreview(of: stack, cursor: Point(10, 500), key: env.key)
-        #expect(preview == .init(area: Rect(0, 0, 400, 1000), stacks: true))
+        #expect(tiler.dropPreview(of: stack, cursor: Point(10, 500), key: env.key) == .init(area: Rect(0, 0, 400, 1000), stacks: false))
+        #expect(tiler.dropPreview(of: stack, cursor: Point(400, 500), key: env.key, merge: true)?.stacks == true)
+        #expect(tiler.dropPreview(of: stack, cursor: Point(400, 500), key: env.key, merge: false)?.stacks == false)
     }
 
     @Test func minimizeAndRestoreKeepsPlace() {

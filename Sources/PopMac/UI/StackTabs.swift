@@ -91,7 +91,7 @@ private final class TabButton: NSView {
     init(tab: StackTabBar.Tab, isActive: Bool, color: NSColor) {
         super.init(frame: .zero)
 
-        // Liquid Glass on macOS 26 and later, with the selected tab in the highlight color.
+        // Liquid Glass on macOS 26 and later, with the selected tab in the accent color.
         // A solid rounded rectangle before.
         let body: NSView
         let textColor: NSColor

@@ -2,31 +2,11 @@ import AppKit
 import PopCore
 
 extension NSColor {
-    /// Parses `#RRGGBB` or `#RRGGBBAA`.
-    /// The color as `#RRGGBB` in sRGB.
-    var hexString: String {
-        let c = usingColorSpace(.sRGB) ?? self
-        func byte(_ v: CGFloat) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
-        return String(format: "#%02X%02X%02X", byte(c.redComponent), byte(c.greenComponent), byte(c.blueComponent))
-    }
-
     /// Black or white, whichever reads better on this color.
     var contrastingText: NSColor {
         let c = usingColorSpace(.sRGB) ?? self
         let luminance = 0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent
         return luminance > 0.55 ? .black : .white
-    }
-
-    convenience init?(hex: String) {
-        var text = hex.trimmingCharacters(in: .whitespaces)
-        if text.hasPrefix("#") { text.removeFirst() }
-        guard text.count == 6 || text.count == 8, let value = UInt64(text, radix: 16) else { return nil }
-        let hasAlpha = text.count == 8
-        let r = Double((value >> (hasAlpha ? 24 : 16)) & 0xFF) / 255
-        let g = Double((value >> (hasAlpha ? 16 : 8)) & 0xFF) / 255
-        let b = Double((value >> (hasAlpha ? 8 : 0)) & 0xFF) / 255
-        let a = hasAlpha ? Double(value & 0xFF) / 255 : 1
-        self.init(srgbRed: r, green: g, blue: b, alpha: a)
     }
 }
 
@@ -77,8 +57,8 @@ final class OverlayWindow: ShapeWindow {
     private var glass: NSView?
     /// The corner radius for windows whose radius the window server does not tell.
     private var radius: Double = 10
-    /// A tab along the top, shown when a drop stacks the window. It lies above the glass.
-    private let tabLayer = CALayer()
+    /// Text in the middle, such as "Stack window" when a drop stacks. It lies above the glass.
+    private let label = NSTextField(labelWithString: "")
 
     init() {
         super.init(level: .floating)
@@ -92,12 +72,22 @@ final class OverlayWindow: ShapeWindow {
             contentView.addSubview(glass)
             self.glass = glass
         }
-        let tabView = NSView(frame: contentView.bounds)
-        tabView.autoresizingMask = [.width, .height]
-        tabView.wantsLayer = true
-        tabView.layer?.addSublayer(tabLayer)
-        contentView.addSubview(tabView)
-        tabLayer.isHidden = true
+
+        label.font = .systemFont(ofSize: 22, weight: .semibold)
+        label.textColor = .white
+        label.alignment = .center
+        // A shadow keeps the text readable over any window below.
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.6)
+        shadow.shadowBlurRadius = 6
+        label.shadow = shadow
+        label.isHidden = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        ])
     }
 
     func style(color: NSColor, radius: Double) {
@@ -110,12 +100,10 @@ final class OverlayWindow: ShapeWindow {
             shape.borderColor = color.cgColor
             shape.borderWidth = 3
         }
-        tabLayer.backgroundColor = color.withAlphaComponent(0.8).cgColor
     }
 
-    /// Shows the highlight with the rounded corners of `window`, and a tab of `tabHeight`
-    /// along the top if it is above zero.
-    func show(_ rect: Rect, like window: WindowID?, tabHeight: Double = 0) {
+    /// Shows the highlight with the rounded corners of `window`, and `text` in the middle if given.
+    func show(_ rect: Rect, like window: WindowID?, text: String? = nil) {
         let cornerRadius = window.flatMap(WindowShapes.cornerRadius(of:)) ?? radius
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -126,23 +114,14 @@ final class OverlayWindow: ShapeWindow {
         }
         CATransaction.commit()
         show(rect)
-        guard tabHeight > 0 else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        // A pill inside the top band. Layer coordinates start at the bottom.
-        let inset = 4.0
-        let height = tabHeight - 2 * inset
-        tabLayer.frame = CGRect(x: inset * 2, y: rect.height - tabHeight + inset, width: rect.width - inset * 4, height: height)
-        tabLayer.cornerRadius = height / 2
-        tabLayer.isHidden = false
-        CATransaction.commit()
+        if let text {
+            label.stringValue = text
+            label.isHidden = false
+        }
     }
 
     override func show(_ rect: Rect) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        tabLayer.isHidden = true
-        CATransaction.commit()
+        label.isHidden = true
         super.show(rect)
     }
 }
@@ -189,7 +168,7 @@ final class HintWindow: ShapeWindow {
         self.radius = radius
         shape.backgroundColor = NSColor.clear.cgColor
         if #available(macOS 26, *), glass != nil {
-            // Plain glass: the highlight color is for the border before macOS 26.
+            // Plain glass: the accent color is for the border before macOS 26.
             shape.borderWidth = 0
         } else {
             shape.borderColor = color.cgColor

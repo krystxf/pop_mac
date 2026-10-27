@@ -259,11 +259,9 @@ public enum FocusLocation: String, Codable, CaseIterable {
 /// All user settings. Stored as JSON in `~/.config/pop-mac/config.json`.
 public struct Settings: Codable, Equatable {
     public var tileByDefault = true
-    /// The color of the overlay that shows where a window will go:
-    /// `#RRGGBB`, or `accent` for the system accent color.
-    public var overlayColor = "#FBB86C"
+    /// The corner radius of the highlights, for windows whose own radius is unknown.
     public var overlayBorderRadius: Double = 10
-    /// Draws an outline in the overlay color around the focused window.
+    /// Draws an outline around the focused window.
     public var activeHint = true
     public var activeHintWidth: Double = 3
     public var gapInner: Double = 8
@@ -294,7 +292,6 @@ public struct Settings: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Settings()
         tileByDefault = try c.decodeIfPresent(Bool.self, forKey: .tileByDefault) ?? d.tileByDefault
-        overlayColor = try c.decodeIfPresent(String.self, forKey: .overlayColor) ?? d.overlayColor
         overlayBorderRadius = try c.decodeIfPresent(Double.self, forKey: .overlayBorderRadius) ?? d.overlayBorderRadius
         activeHint = try c.decodeIfPresent(Bool.self, forKey: .activeHint) ?? d.activeHint
         activeHintWidth = try c.decodeIfPresent(Double.self, forKey: .activeHintWidth) ?? d.activeHintWidth

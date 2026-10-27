@@ -139,7 +139,10 @@ final class WindowManager {
         }
         // The accent color can change in System Settings.
         NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyStyles() }
+            MainActor.assumeIsolated {
+                self?.applyStyles()
+                self?.scheduleStacksRefresh()
+            }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.onDisplaysChanged() }
@@ -212,14 +215,16 @@ final class WindowManager {
         }
     }
 
-    var overlayColor: NSColor {
-        if settings.overlayColor == "accent" { return .controlAccentColor }
-        return NSColor(hex: settings.overlayColor) ?? NSColor(srgbRed: 0.98, green: 0.72, blue: 0.42, alpha: 1)
+    /// The system accent color, for the selected stack tab and, before macOS 26, the highlights.
+    ///
+    /// The color is resolved, so a new accent color counts as a change.
+    private var accentColor: NSColor {
+        NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .controlAccentColor
     }
 
     private func applyStyles() {
-        overlay.style(color: overlayColor, radius: settings.overlayBorderRadius)
-        hint.style(color: overlayColor, width: settings.activeHintWidth, radius: settings.overlayBorderRadius)
+        overlay.style(color: accentColor, radius: settings.overlayBorderRadius)
+        hint.style(color: accentColor, width: settings.activeHintWidth, radius: settings.overlayBorderRadius)
     }
 
     // MARK: - Applications
@@ -881,7 +886,7 @@ final class WindowManager {
             return StackTabsController.Entry(stack: stack, frame: Rect(rect.x, rect.y - height, rect.width, height - 2), tabs: tabs)
         }
 
-        tabs.sync(entries, color: overlayColor) { [weak self] id in
+        tabs.sync(entries, color: accentColor) { [weak self] id in
             MainActor.assumeIsolated { self?.activate(id, moveCursor: false) }
         } onDrag: { [weak self] stack, phase in
             MainActor.assumeIsolated {
@@ -901,12 +906,15 @@ final class WindowManager {
         stackPreviewTime = Date()
         let cursor = Displays.cursor
         guard let display = Displays.display(at: cursor, in: displays),
-              let preview = autoTiler.dropPreview(of: stack, cursor: cursor, key: currentKey(of: display))
+              let preview = autoTiler.dropPreview(
+                  of: stack, cursor: cursor, key: currentKey(of: display),
+                  merge: holdsSuper(CGEventSource.flagsState(.combinedSessionState))
+              )
         else {
             overlay.hide()
             return
         }
-        overlay.show(preview.area, like: stack.active, tabHeight: preview.stacks ? autoTiler.forest.tabHeight : 0)
+        overlay.show(preview.area, like: stack.active, text: preview.stacks ? "Stack windows" : nil)
     }
 
     /// Moves a stack that was dropped after a drag by its tab bar.
@@ -942,7 +950,7 @@ final class WindowManager {
             overlay.hide()
             return
         }
-        overlay.show(preview.area, like: id, tabHeight: preview.stacks ? autoTiler.forest.tabHeight : 0)
+        overlay.show(preview.area, like: id, text: preview.stacks ? "Stack window" : nil)
     }
 
     /// True if Pop Mac set the window's frame after `date`.
