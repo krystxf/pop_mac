@@ -414,20 +414,6 @@ private struct LayoutSettings: View {
             } footer: {
                 Footnote("Your windows follow the sliders as you drag. Smart gaps remove the gap at the screen edges when a display shows only one window.")
             }
-
-            Section {
-                Toggle("Limit the width of tiled windows", isOn: Binding(
-                    get: { model.settings.maxWindowWidth > 0 },
-                    set: { enabled in model.update { $0.maxWindowWidth = enabled ? 1600 : 0 } }
-                ))
-                if model.settings.maxWindowWidth > 0 {
-                    ValueSlider(title: "Maximum width", value: model.binding(\.maxWindowWidth), range: 600 ... 4000, step: 50)
-                }
-            } header: {
-                Text("Width")
-            } footer: {
-                Footnote("A wider tile centers its window. Useful on ultrawide displays.")
-            }
         }
         .formStyle(.grouped)
     }
