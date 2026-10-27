@@ -17,6 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// True if macOS revoked Accessibility access while Pop Mac ran.
     private var accessLost = false
 
+    func applicationWillTerminate(_: Notification) {
+        // The next start rebuilds this layout.
+        manager?.saveLayout()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !takeOverFromOtherCopies() {
             // Two copies of the same build would fight over every window.

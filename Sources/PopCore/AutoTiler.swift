@@ -891,6 +891,24 @@ public final class AutoTiler {
         }
     }
 
+    // MARK: - Saved layouts
+
+    /// Rebuilds a saved tree with the windows that `keep` accepts, and moves them into place.
+    ///
+    /// Returns false if nothing was rebuilt.
+    @discardableResult
+    public func restore(_ tree: SavedTree, keep: (WindowID) -> Bool) -> Bool {
+        guard let work = env.workArea(tree.monitor),
+              let root = forest.rebuild(tree, area: work.inset(by: env.gapOuter), keep: keep)
+        else { return false }
+        if env.smartGaps, root.right == nil {
+            root.area = work
+            root.smartGapped = true
+        }
+        tile(root, area: root.area)
+        return true
+    }
+
     // MARK: - Minimize
 
     /// Remembers where a window was so that it can return there.

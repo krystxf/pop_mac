@@ -36,6 +36,9 @@ final class WindowManager {
     private var stacksScheduled = false
     /// When the drop preview of a dragged stack was last updated.
     private var stackPreviewTime = Date.distantPast
+    /// Saved trees from before Pop Mac started, waiting for their Space to be visible.
+    private var savedTrees: [SavedTree] = []
+    private var layoutSaveScheduled = false
     let hotkeys = HotkeyManager()
     private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
@@ -84,6 +87,7 @@ final class WindowManager {
         }
 
         if settings.tileByDefault {
+            savedTrees = SavedLayout.load()?.trees ?? []
             autoTileOn()
         }
 
@@ -376,6 +380,9 @@ final class WindowManager {
     /// A native tab takes the tile of the tab it replaced on screen.
     private func autoTileIfNeeded(_ id: WindowID) {
         guard let autoTiler, !autoTiler.isAttached(id), isTilable(id), minimizedAttachments[id] == nil else { return }
+        // A saved tree of this Space takes the window back to its old place.
+        restoreSavedTrees()
+        guard !autoTiler.isAttached(id) else { return }
         if let sibling = tabSibling(of: id) {
             Log.debug("window \(id) replaces tab \(sibling)")
             closingTabs.removeValue(forKey: sibling)
@@ -612,6 +619,7 @@ final class WindowManager {
         }
 
         if let autoTiler {
+            restoreSavedTrees()
             let visible = Displays.onScreenWindowIDs()
             for id in visible.reversed() {
                 guard windows[id] != nil else { continue }
@@ -708,10 +716,12 @@ final class WindowManager {
             save()
         }
 
-        // Tile from back to front, so the frontmost window is split last.
+        // Rebuild the layout from before a restart first. Then tile the other windows
+        // from back to front, so the frontmost window is split last.
         // Each window moves once, to its final tile.
         tiler.batch {
-            for id in Displays.onScreenWindowIDs().reversed() where windows[id] != nil && isTilable(id) {
+            restoreSavedTrees()
+            for id in Displays.onScreenWindowIDs().reversed() where windows[id] != nil && isTilable(id) && !tiler.isAttached(id) {
                 tiler.autoTile(id, ignoreFocus: true)
             }
         }
@@ -727,6 +737,9 @@ final class WindowManager {
         prevRect.removeAll()
         autoTiler = nil
         tabs.removeAll()
+        // The windows stay where they are, so the saved layout is over.
+        savedTrees.removeAll()
+        try? FileManager.default.removeItem(at: SavedLayout.defaultURL)
         minimizedAttachments.removeAll()
 
         if settings.tileByDefault {
@@ -786,6 +799,57 @@ final class WindowManager {
         autoTiler?.detachWindow(id)
         pendingRestore.removeValue(forKey: id)
         if let saved { prevRect[id] = saved }
+    }
+
+    // MARK: - Saved layout
+
+    /// Rebuilds the saved trees of the visible Spaces, from before Pop Mac started.
+    ///
+    /// A tree whose Space is visible is used once. If its Space has a tree already, it is dropped.
+    private func restoreSavedTrees() {
+        guard let autoTiler, !savedTrees.isEmpty else { return }
+        let visible = Set(displays.map { currentKey(of: $0) })
+        guard savedTrees.contains(where: { visible.contains($0.key) }) else { return }
+
+        // The windows of a Space are not known before the first visit.
+        for observer in observers.values {
+            for element in observer.windows() {
+                register(element, observer)
+            }
+        }
+        savedTrees.removeAll { tree in
+            guard visible.contains(tree.key) else { return false }
+            let restored = autoTiler.restore(tree) { [self] id in
+                windows[id] != nil && !floating.contains(id) && isTilable(id) && actualKey(of: id) == tree.key
+            }
+            if restored { Log.debug("restored the saved layout of \(tree.key)") }
+            return true
+        }
+    }
+
+    private func scheduleLayoutSave() {
+        guard !layoutSaveScheduled else { return }
+        layoutSaveScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.layoutSaveScheduled = false
+                self?.saveLayout()
+            }
+        }
+    }
+
+    /// Saves the trees, so the next start of Pop Mac can rebuild them.
+    func saveLayout() {
+        guard let autoTiler else { return }
+        var layout = autoTiler.forest.snapshot()
+        // Saved trees of Spaces not visited since the start stay saved.
+        let current = Set(layout.trees.map(\.key))
+        layout.trees += savedTrees.filter { !current.contains($0.key) }
+        do {
+            try layout.save()
+        } catch {
+            Log.warn("could not save the layout: \(error)")
+        }
     }
 
     // MARK: - Focus
@@ -1151,7 +1215,9 @@ extension WindowManager: @preconcurrency TilingEnvironment {
         minimumSizes[id] = size
     }
 
+    /// Called after every layout change.
     func updateStacks(_: [StackNode]) {
         scheduleStacksRefresh()
+        scheduleLayoutSave()
     }
 }

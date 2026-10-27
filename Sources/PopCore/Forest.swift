@@ -109,6 +109,12 @@ public final class Forest {
         StackNode(id: newID(), window: window)
     }
 
+    /// Makes a fork the top-level fork of its workspace.
+    func setToplevel(_ fork: Fork) {
+        fork.isToplevel = true
+        toplevels[fork.workspace] = fork
+    }
+
     func deleteFork(_ fork: Fork) {
         fork.isDeleted = true
         if fork.isToplevel, toplevels[fork.workspace] === fork {

@@ -73,7 +73,7 @@ final class OverlayWindow: ShapeWindow {
             self.glass = glass
         }
 
-        label.font = .systemFont(ofSize: 22, weight: .semibold)
+        label.font = .systemFont(ofSize: 15, weight: .semibold)
         label.textColor = .white
         label.alignment = .center
         // A shadow keeps the text readable over any window below.

@@ -17,6 +17,7 @@ It ports Pop Shell's tiling tree, keyboard workflow, tile mode, stacking, and la
 | Super + drag moves a window | Same. Hold Super (⌃⌥ by default) and drag anywhere in a window. |
 | Toggle floating (Super + G), floating window exceptions | Same. Every standard window tiles, unless you float it with Super + G or a rule in `floatRules` matches it. |
 | Toggle auto-tiling (Super + Y) | Same. Windows stay where they are when tiling turns off. |
+| Tiling survives a restart of the shell | Pop Mac saves the layout in `~/.config/pop-mac/layout.json` and rebuilds it when it starts. Windows of apps that restarted meanwhile tile as new windows. |
 | Move window to another display | Same |
 | Move window to another workspace | Moves the window to the previous or next Space (see limitations) |
 | Active hint around the focused window | Same. Turn it off in **Settings > Appearance**. |

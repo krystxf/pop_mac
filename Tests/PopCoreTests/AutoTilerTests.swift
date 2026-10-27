@@ -1,3 +1,4 @@
+import Foundation
 @testable import PopCore
 import Testing
 
@@ -432,6 +433,42 @@ struct AutoTilerTests {
         #expect(tiler.dropPreview(of: stack, cursor: Point(10, 500), key: env.key) == .init(area: Rect(0, 0, 400, 1000), stacks: false))
         #expect(tiler.dropPreview(of: stack, cursor: Point(400, 500), key: env.key, merge: true)?.stacks == true)
         #expect(tiler.dropPreview(of: stack, cursor: Point(400, 500), key: env.key, merge: false)?.stacks == false)
+    }
+
+    @Test func savedLayoutRebuildsTheSameTiles() throws {
+        _ = openStackBottomRight()
+        tiler.resizeTile(1, to: Rect(0, 0, 600, 1000))
+        let before = env.rects
+        let saved = tiler.forest.snapshot()
+        // The layout survives a trip through its file format.
+        let decoded = try JSONDecoder().decode(SavedLayout.self, from: JSONEncoder().encode(saved))
+        #expect(decoded == saved)
+
+        // A new tiler, as after a restart, rebuilds the same tiles.
+        let restarted = AutoTiler(env: env, gapInner: 0)
+        for (id, rect) in before { env.rects[id] = Rect(rect.x + 50, rect.y + 50, 300, 200) }
+        #expect(restarted.restore(decoded.trees[0]) { _ in true })
+        #expect(env.rects == before)
+        #expect(env.stacks.map(\.entities) == [[3, 4]])
+        #expect(env.stacks.first?.active == 4)
+    }
+
+    @Test func savedLayoutSkipsWindowsThatAreGone() {
+        _ = openStackBottomRight()
+        let saved = tiler.forest.snapshot()
+        let restarted = AutoTiler(env: env, gapInner: 0)
+        // Window 2 closed and window 4 is gone too: the stack becomes window 3 alone, below nothing.
+        #expect(restarted.restore(saved.trees[0]) { $0 != 2 && $0 != 4 })
+        #expect(env.stacks.isEmpty)
+        #expect(env.rects[1] == Rect(0, 0, 800, 1000))
+        #expect(env.rects[3] == Rect(800, 0, 800, 1000))
+        #expect(!restarted.isAttached(2))
+    }
+
+    @Test func savedLayoutDoesNotReplaceATree() {
+        env.open(tiler, 1)
+        let saved = tiler.forest.snapshot()
+        #expect(!tiler.restore(saved.trees[0]) { _ in true })
     }
 
     @Test func minimizeAndRestoreKeepsPlace() {
