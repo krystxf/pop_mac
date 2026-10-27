@@ -69,6 +69,8 @@ final class WindowManager {
     private var offscreenStrikes: [WindowID: Int] = [:]
     /// How many checks in a row found each tilable window on screen but untiled.
     private var untiledStrikes: [WindowID: Int] = [:]
+    /// For the end-to-end tests: the only app whose windows Pop Mac manages.
+    private let onlyPID = ProcessInfo.processInfo.environment["POP_MAC_ONLY_PID"].flatMap { pid_t($0) }
 
     init(settings: Settings) {
         self.settings = settings
@@ -241,7 +243,7 @@ final class WindowManager {
 
     private func addApp(_ app: NSRunningApplication, attempt: Int = 0) {
         guard let pid = Processes.pid(of: app), observers[pid] == nil, pid != ProcessInfo.processInfo.processIdentifier,
-              app.activationPolicy == .regular, !app.isTerminated
+              app.activationPolicy == .regular, !app.isTerminated, onlyPID == nil || pid == onlyPID
         else { return }
 
         guard let observer = AppObserver(app: app, pid: pid, handler: { [weak self] observer, event in

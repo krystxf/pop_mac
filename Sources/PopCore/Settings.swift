@@ -326,9 +326,11 @@ public struct Settings: Codable, Equatable {
         return bindings(for: action).compactMap { KeyCombo.parse($0, superModifiers: sup, primaryModifiers: prim) }
     }
 
+    /// `POP_MAC_CONFIG_DIR` moves the folder, so the end-to-end tests do not touch the user's files.
     public static var defaultURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/pop-mac/config.json")
+        let folder = ProcessInfo.processInfo.environment["POP_MAC_CONFIG_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/pop-mac")
+        return folder.appendingPathComponent("config.json")
     }
 
     public static func load(from url: URL = defaultURL) throws -> Settings {

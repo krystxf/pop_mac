@@ -20,6 +20,9 @@ let package = Package(
             ]
         ),
         .testTarget(name: "PopCoreTests", dependencies: ["PopCore"]),
+        // The end-to-end tests run the PopMac binary against the windows of PopTestApp.
+        .executableTarget(name: "PopTestApp", path: "Tests/PopTestApp"),
+        .testTarget(name: "PopE2ETests", dependencies: ["PopCore"]),
     ],
     swiftLanguageModes: [.v5]
 )

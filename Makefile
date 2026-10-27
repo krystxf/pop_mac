@@ -1,10 +1,15 @@
-.PHONY: build test lint format app run install prod clean
+.PHONY: build test e2e lint format app run install prod clean
 
 build:
 	swift build
 
 test:
 	swift test
+
+# Runs Pop Mac against real windows. Quit Pop Mac first.
+e2e:
+	swift build --build-tests
+	POP_MAC_E2E=1 swift test --skip-build --filter PopE2ETests
 
 lint:
 	swiftformat --lint .
