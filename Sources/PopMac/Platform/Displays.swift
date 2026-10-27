@@ -79,6 +79,16 @@ enum Displays {
         return spaces[display.uuid] ?? spaces["Main"] ?? Spaces.activeSpace
     }
 
+    /// A window's frame, or nil if the window is not on screen, for example while it is minimized.
+    static func onScreenFrame(of id: CGWindowID) -> Rect? {
+        guard let entry = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]])?.first,
+              entry[kCGWindowIsOnscreen as String] as? Bool == true,
+              let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: boundsDict)
+        else { return nil }
+        return Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height))
+    }
+
     /// The ids of every window that is visible on screen, from front to back.
     static func onScreenWindowIDs() -> [CGWindowID] {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {

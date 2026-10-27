@@ -30,6 +30,8 @@ public final class Forest {
     public private(set) var tileRects: [WindowID: Rect] = [:]
 
     public var gapInner: Double = 8
+    /// The height of the tab bar above a stack.
+    public var tabHeight: Double = 24
 
     /// Set while the user resizes a window, so that forks remember their ratio.
     public var manuallyMoved = false
@@ -56,6 +58,8 @@ public final class Forest {
             child.parent = fork
         case let .window(window):
             setAttached(window, fork)
+        case let .stack(stack):
+            for window in stack.entities { setAttached(window, fork) }
         }
     }
 
@@ -101,6 +105,10 @@ public final class Forest {
         return fork
     }
 
+    public func createStack(window: WindowID) -> StackNode {
+        StackNode(id: newID(), window: window)
+    }
+
     func deleteFork(_ fork: Fork) {
         fork.isDeleted = true
         if fork.isToplevel, toplevels[fork.workspace] === fork {
@@ -136,9 +144,20 @@ public final class Forest {
         return nodes
     }
 
-    /// Every window in the tree below a fork.
+    /// Every window in the tree below a fork, including stacked windows.
     public func windows(in fork: Fork) -> [WindowID] {
-        iter(fork).compactMap(\.windowID)
+        iter(fork).flatMap { node -> [WindowID] in
+            switch node {
+            case let .window(w): [w]
+            case let .stack(s): s.entities
+            case .fork: []
+            }
+        }
+    }
+
+    /// Every stack in the forest.
+    public func allStacks() -> [StackNode] {
+        toplevels.values.flatMap { iter($0).compactMap(\.stack) }
     }
 
     /// Finds the largest tilable window below a fork.
@@ -170,6 +189,10 @@ public final class Forest {
         case let .window(window):
             guard let size = minimumSize?(window) else { return 0 }
             return horizontal ? size.width : size.height
+        case let .stack(stack):
+            // Every window must fit, below the tab bar.
+            let length = stack.entities.map { minimumLength(of: .window($0), horizontal: horizontal) }.max() ?? 0
+            return length > 0 && !horizontal ? length + tabHeight : length
         case let .fork(fork):
             let left = minimumLength(of: fork.left, horizontal: horizontal)
             guard let right = fork.right else { return left }
@@ -209,10 +232,22 @@ public final class Forest {
         }
     }
 
+    /// Adds a window to a stack, and makes it the active window.
+    public func attachStack(_ stack: StackNode, fork: Fork, window: WindowID, atEnd: Bool) {
+        if atEnd {
+            stack.entities.append(window)
+        } else {
+            stack.entities.insert(window, at: 0)
+        }
+        stack.active = window
+        setAttached(window, fork)
+    }
+
     /// Attaches a new window to the fork that `onto` is attached to.
     ///
+    /// A window that attaches onto a stacked window joins the stack.
     /// Returns the fork that must be re-tiled.
-    public func attachWindow(onto: WindowID, new: WindowID, placeBy: MoveBy) -> Fork? {
+    public func attachWindow(onto: WindowID, new: WindowID, placeBy: MoveBy, stackAtEnd: Bool = true) -> Fork? {
         guard let fork = attached[onto] else { return nil }
 
         func halves(_ fork: Fork) -> (Rect, Rect) {
@@ -261,6 +296,9 @@ public final class Forest {
             fork.right = .fork(child)
             place(child)
             return fork
+        } else if let stack = fork.stack(holding: onto) {
+            attachStack(stack, fork: fork, window: new, atEnd: stackAtEnd)
+            return fork
         }
 
         return nil
@@ -275,7 +313,24 @@ public final class Forest {
         var reflow: Fork?
         let parent = fork.parent
 
-        if fork.left.isWindow(window) {
+        let inLeft = fork.left.holds(window)
+        let inRight = fork.right?.holds(window) == true
+
+        // A stack that keeps other windows stays in the tree, and a single window left
+        // in it becomes a plain window. A stack of one leaves like a window.
+        if let stack = (inLeft ? fork.left : inRight ? fork.right : nil)?.stack {
+            stack.entities.removeAll { $0 == window }
+            if let last = stack.entities.first {
+                stack.autoActivate()
+                if stack.entities.count == 1 {
+                    if inLeft { fork.left = .window(last) } else { fork.right = .window(last) }
+                }
+                onDetach?(window)
+                return fork
+            }
+        }
+
+        if inLeft {
             if let parent, let right = fork.right {
                 reflow = reassignChildToParent(child: fork, parent: parent, branch: right)
             } else if let right = fork.right {
@@ -289,7 +344,7 @@ public final class Forest {
             } else {
                 deleteFork(fork)
             }
-        } else if let right = fork.right, right.isWindow(window) {
+        } else if inRight {
             if let parent {
                 reflow = reassignChildToParent(child: fork, parent: parent, branch: fork.left)
             } else {
@@ -359,6 +414,7 @@ public final class Forest {
         switch node {
         case let .fork(f): describe(f, scope: scope, rect: rect)
         case let .window(w): "Window(\(w)) \(rect(w).map { "\($0)" } ?? "?")"
+        case let .stack(s): "Stack(\(s.entities.map(String.init).joined(separator: ", "))) active \(s.active)"
         }
     }
 }

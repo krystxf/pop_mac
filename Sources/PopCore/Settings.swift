@@ -92,9 +92,12 @@ public enum Action: String, CaseIterable, Codable {
     case focusDown = "focus-down"
     case focusUp = "focus-up"
     case focusRight = "focus-right"
+    case focusNextTab = "focus-next-tab"
+    case focusPreviousTab = "focus-previous-tab"
     case tileOrientation = "tile-orientation"
     case toggleFloating = "toggle-floating"
     case toggleTiling = "toggle-tiling"
+    case toggleStackingGlobal = "toggle-stacking-global"
     case tileMoveLeftGlobal = "tile-move-left-global"
     case tileMoveDownGlobal = "tile-move-down-global"
     case tileMoveUpGlobal = "tile-move-up-global"
@@ -111,6 +114,7 @@ public enum Action: String, CaseIterable, Codable {
 
     // Tile (management) mode
     case managementOrientation = "management-orientation"
+    case toggleStacking = "toggle-stacking"
     case tileMoveLeft = "tile-move-left"
     case tileMoveDown = "tile-move-down"
     case tileMoveUp = "tile-move-up"
@@ -129,7 +133,7 @@ public enum Action: String, CaseIterable, Codable {
     /// True for bindings that only work inside tile mode.
     public var isTileMode: Bool {
         switch self {
-        case .managementOrientation,
+        case .managementOrientation, .toggleStacking,
              .tileMoveLeft, .tileMoveDown, .tileMoveUp, .tileMoveRight,
              .tileResizeLeft, .tileResizeDown, .tileResizeUp, .tileResizeRight,
              .tileSwapLeft, .tileSwapDown, .tileSwapUp, .tileSwapRight,
@@ -148,9 +152,12 @@ public enum Action: String, CaseIterable, Codable {
         case .focusDown: "Focus window below"
         case .focusUp: "Focus window above"
         case .focusRight: "Focus window to the right"
+        case .focusNextTab: "Focus the next tab of the stack"
+        case .focusPreviousTab: "Focus the previous tab of the stack"
         case .tileOrientation: "Toggle tiling orientation"
         case .toggleFloating: "Toggle floating mode for the window"
         case .toggleTiling: "Toggle auto-tiling"
+        case .toggleStackingGlobal: "Toggle stacking for the window"
         case .tileMoveLeftGlobal: "Move window left"
         case .tileMoveDownGlobal: "Move window down"
         case .tileMoveUpGlobal: "Move window up"
@@ -165,6 +172,7 @@ public enum Action: String, CaseIterable, Codable {
         case .closeWindow: "Close window"
         case .minimizeWindow: "Minimize window"
         case .managementOrientation: "Toggle orientation"
+        case .toggleStacking: "Toggle stacking"
         case .tileMoveLeft: "Move window left"
         case .tileMoveDown: "Move window down"
         case .tileMoveUp: "Move window up"
@@ -189,9 +197,12 @@ public enum Action: String, CaseIterable, Codable {
         .focusDown: ["<Super>Down", "<Super>j"],
         .focusUp: ["<Super>Up", "<Super>k"],
         .focusRight: ["<Super>Right", "<Super>l"],
+        .focusNextTab: ["<Super>Tab"],
+        .focusPreviousTab: ["<Super><Shift>Tab"],
         .tileOrientation: ["<Super>o"],
         .toggleFloating: ["<Super>g"],
         .toggleTiling: ["<Super>y"],
+        .toggleStackingGlobal: ["<Super>s"],
         .tileMoveLeftGlobal: [],
         .tileMoveDownGlobal: [],
         .tileMoveUpGlobal: [],
@@ -207,6 +218,7 @@ public enum Action: String, CaseIterable, Codable {
         .minimizeWindow: ["<Super>comma"],
 
         .managementOrientation: ["o"],
+        .toggleStacking: ["s"],
         .tileMoveLeft: ["Left", "h"],
         .tileMoveDown: ["Down", "j"],
         .tileMoveUp: ["Up", "k"],
@@ -251,10 +263,15 @@ public struct Settings: Codable, Equatable {
     /// `#RRGGBB`, or `accent` for the system accent color.
     public var overlayColor = "#FBB86C"
     public var overlayBorderRadius: Double = 10
+    /// Draws an outline in the overlay color around the focused window.
+    public var activeHint = true
+    public var activeHintWidth: Double = 3
     public var gapInner: Double = 8
     public var gapOuter: Double = 8
     public var smartGaps = false
     public var snapToGrid = false
+    /// Holding the Super modifiers and dragging anywhere in a window moves it.
+    public var superDragMovesWindows = true
     public var mouseCursorFollowsActiveWindow = true
     public var mouseCursorFocusLocation: FocusLocation = .center
     public var columnSize: Double = 64
@@ -279,10 +296,13 @@ public struct Settings: Codable, Equatable {
         tileByDefault = try c.decodeIfPresent(Bool.self, forKey: .tileByDefault) ?? d.tileByDefault
         overlayColor = try c.decodeIfPresent(String.self, forKey: .overlayColor) ?? d.overlayColor
         overlayBorderRadius = try c.decodeIfPresent(Double.self, forKey: .overlayBorderRadius) ?? d.overlayBorderRadius
+        activeHint = try c.decodeIfPresent(Bool.self, forKey: .activeHint) ?? d.activeHint
+        activeHintWidth = try c.decodeIfPresent(Double.self, forKey: .activeHintWidth) ?? d.activeHintWidth
         gapInner = try c.decodeIfPresent(Double.self, forKey: .gapInner) ?? d.gapInner
         gapOuter = try c.decodeIfPresent(Double.self, forKey: .gapOuter) ?? d.gapOuter
         smartGaps = try c.decodeIfPresent(Bool.self, forKey: .smartGaps) ?? d.smartGaps
         snapToGrid = try c.decodeIfPresent(Bool.self, forKey: .snapToGrid) ?? d.snapToGrid
+        superDragMovesWindows = try c.decodeIfPresent(Bool.self, forKey: .superDragMovesWindows) ?? d.superDragMovesWindows
         mouseCursorFollowsActiveWindow = try c.decodeIfPresent(Bool.self, forKey: .mouseCursorFollowsActiveWindow) ?? d.mouseCursorFollowsActiveWindow
         mouseCursorFocusLocation = try c.decodeIfPresent(FocusLocation.self, forKey: .mouseCursorFocusLocation) ?? d.mouseCursorFocusLocation
         columnSize = try c.decodeIfPresent(Double.self, forKey: .columnSize) ?? d.columnSize

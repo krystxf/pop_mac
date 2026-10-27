@@ -1,8 +1,7 @@
 # Pop Mac
 
 Pop Mac brings the [Pop!_OS Shell](https://github.com/pop-os/shell) tiling window manager to macOS.
-It ports Pop Shell's tiling tree, keyboard workflow, tile mode, and launcher to a native menu bar app.
-Pop Shell's window stacking is not included.
+It ports Pop Shell's tiling tree, keyboard workflow, tile mode, stacking, and launcher to a native menu bar app.
 
 ## Features
 
@@ -11,13 +10,16 @@ Pop Shell's window stacking is not included.
 | Auto-tiling into a tree of forks, per display and workspace | Same. Each display on each macOS Space has its own tree. |
 | New windows split the previously focused window | Same |
 | Directional focus with Super + arrows / hjkl | Same |
-| Tile mode (Super + Return): move, resize, swap, orientation | Same, including the grid overlay for floating windows |
-| Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows. |
+| Tile mode (Super + Return): move, resize, swap, orientation, stacking | Same, including the grid overlay for floating windows |
+| Stacking (Super + S) with a tab bar | Same. Click a tab, or press Super + Tab and Super + Shift + Tab, to switch tabs. |
+| Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows, or hold Super at the drop to stack them. |
 | Resize a tiled window with the mouse | Same. The neighbors follow. |
+| Super + drag moves a window | Same. Hold Super (⌃⌥ by default) and drag anywhere in a window. |
 | Toggle floating (Super + G), floating window exceptions | Same. Every standard window tiles, unless you float it with Super + G or a rule in `floatRules` matches it. |
-| Toggle auto-tiling (Super + Y) | Same. Windows return to their original frames. |
+| Toggle auto-tiling (Super + Y) | Same. Windows stay where they are when tiling turns off. |
 | Move window to another display | Same |
 | Move window to another workspace | Moves the window to the previous or next Space (see limitations) |
+| Active hint around the focused window | Same. Turn it off in **Settings > Appearance**. |
 | Inner and outer gaps, smart gaps | Same |
 | Launcher (Super + /) | Search windows and apps. `=` calculates, `:` runs a command, `/` or `~` opens files. |
 | Cursor follows the active window | Same |
@@ -104,6 +106,8 @@ Both are configurable in **Settings > Shortcuts**, which also lists the current 
 | Toggle orientation | ⌃⌥ O |
 | Toggle floating | ⌃⌥ G |
 | Toggle auto-tiling | ⌃⌥ Y |
+| Toggle stacking | ⌃⌥ S |
+| Next / previous tab of a stack | ⌃⌥ ⇥ / ⌃⌥⇧ ⇥ |
 | Move window to display | ⌃⌥⇧⌘ ← ↓ ↑ → |
 | Move window to previous / next Space | ⌃⌥⇧ ↑ / ⌃⌥⇧ ↓ |
 | Toggle maximize | ⌃⌥ M |
@@ -118,6 +122,7 @@ In tile mode:
 | Resize (→ ↓ grow, ← ↑ shrink) | ⇧ + arrows |
 | Select a window to swap with | ⌘ + arrows |
 | Toggle orientation | O |
+| Toggle stacking | S |
 | Apply and exit | ↩ |
 | Exit | ⎋ |
 
@@ -136,9 +141,12 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   "smartGaps": false,
   "overlayColor": "#FBB86C",
   "overlayBorderRadius": 10,
+  "activeHint": true,
+  "activeHintWidth": 3,
   "mouseCursorFollowsActiveWindow": true,
   "mouseCursorFocusLocation": "center",
   "snapToGrid": false,
+  "superDragMovesWindows": true,
   "columnSize": 64,
   "rowSize": 64,
   "maxWindowWidth": 0,
@@ -171,8 +179,11 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   - Built-in rules float Google Meet calls (browser windows titled "Meet - …", and the Google Meet web app) and Keka, whose window has a fixed size.
     They come after your rules, so `{ "app": "Keka", "disabled": true }` makes Keka tile.
   - Rules follow window titles: a browser window that switches to a Meet call floats, and tiles again when it switches away.
-- `overlayColor` is the highlight color for tile mode and drop previews: `#RRGGBB`, or `accent` for the system accent color.
+- `overlayColor` is the highlight color for stack tabs. Before macOS 26, it also colors tile mode, drop previews, and the active hint: `#RRGGBB`, or `accent` for the system accent color.
   **Settings > Appearance** sets it too, with presets and a color picker.
+- `superDragMovesWindows` lets you hold the Super modifiers and drag anywhere in a window to move it.
+  Pop Mac consumes that click, so the app under the cursor does not see it.
+- `activeHint` draws an outline around the focused window. `activeHintWidth` is its width in points.
 - `mouseCursorFocusLocation` is one of `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
 
 ## Limitations
@@ -180,6 +191,7 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
 macOS restricts what a window manager can do. These parts differ from Pop Shell:
 
 - **Spaces:** Pop Mac cannot create Spaces. To move a window to another Space, it drags the window's title bar and presses ⌃← or ⌃→. This depends on the Mission Control shortcuts, and some apps may not respond to it.
+- **Stacks:** macOS cannot hide a single window of another app. Stacked windows overlap in one tile, and the selected tab's window is raised above the others.
 - **Native tabs:** each macOS tab is a window. The selected tab takes the tile of the tab it replaced.
 - **Snap back:** a tiled window that something other than a mouse drag moves returns to its tile.
 - **Minimum sizes:** macOS does not tell other apps a window's minimum size, so Pop Mac learns it the first time a window refuses a smaller tile. Its neighbors then make room. If the minimums on a display add up to more than it has, windows still overlap.
@@ -212,7 +224,7 @@ bundle. The bundle is attached to each run as the `PopMac` artifact.
 The code has two parts:
 
 - `Sources/PopCore` is the tiling engine without any AppKit code. It ports Pop Shell's `fork.ts`, `forest.ts`, `auto_tiler.ts`, `focus.ts`, and parts of `tiling.ts`. The tests in `Tests/PopCoreTests` cover it.
-- `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, catches key bindings with a keyboard event tap, and draws the overlay and launcher with AppKit.
+- `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, catches key bindings with a keyboard event tap, and draws the overlay, active hint, stack tabs, and launcher with AppKit.
 
 ## License
 

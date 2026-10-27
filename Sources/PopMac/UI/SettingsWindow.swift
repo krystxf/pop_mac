@@ -331,6 +331,13 @@ private struct Footnote: View {
 private struct GeneralSettings: View {
     @ObservedObject var model: SettingsModel
 
+    /// The Super modifiers as symbols, for example ⌃⌥.
+    private var superKeys: String {
+        [MacModifier.control, .option, .shift, .command]
+            .filter(model.settings.superModifiers.contains)
+            .map(\.symbol).joined()
+    }
+
     var body: some View {
         Form {
             Section {
@@ -351,6 +358,12 @@ private struct GeneralSettings: View {
                 .disabled(!model.settings.mouseCursorFollowsActiveWindow)
             } footer: {
                 Footnote("Applies when you move focus or windows with the keyboard, and when you pick a window in the launcher.")
+            }
+
+            Section {
+                Toggle("Move windows with \(superKeys) + drag", isOn: model.binding(\.superDragMovesWindows))
+            } footer: {
+                Footnote("Hold \(superKeys) and drag anywhere in a window to move it. Tiled windows drop like a title bar drag.")
             }
 
             Section {
@@ -445,6 +458,14 @@ private struct AppearanceSettings: View {
             }
 
             Section {
+                Toggle("Outline the focused window", isOn: model.binding(\.activeHint))
+            } header: {
+                Text("Active window")
+            } footer: {
+                Footnote("The outline is clear glass. Before macOS 26, it uses the highlight color.")
+            }
+
+            Section {
                 Toggle("Use the system accent color", isOn: Binding(
                     get: { model.settings.overlayColor == "accent" },
                     set: { useAccent in model.update { $0.overlayColor = useAccent ? "accent" : "#FBB86C" } }
@@ -463,7 +484,7 @@ private struct AppearanceSettings: View {
             } header: {
                 Text("Highlight color")
             } footer: {
-                Footnote("The highlight shows where a window will go in tile mode and while you drag it.")
+                Footnote("Colors the selected tab of a stack. Before macOS 26, it also shows where a window will go in tile mode and while you drag it.")
             }
         }
         .formStyle(.grouped)

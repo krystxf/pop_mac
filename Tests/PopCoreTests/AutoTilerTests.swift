@@ -23,8 +23,14 @@ final class FakeEnv: TilingEnvironment {
         rects.filter { $0.value.contains(point) && keys[$0.key] == key }.map(\.key)
     }
     func minimumSize(_ window: WindowID) -> Size? { minimums[window] }
+    var stacks: [StackNode] = []
+    func updateStacks(_ stacks: [StackNode]) { self.stacks = stacks }
+    var moved: [WindowID] = []
     func applyLayout(_ moves: [(WindowID, Rect)]) {
-        for (w, r) in moves { rects[w] = r }
+        for (w, r) in moves {
+            rects[w] = r
+            moved.append(w)
+        }
     }
 
     let key = WorkspaceKey(monitor: 1, space: 1)
@@ -125,6 +131,30 @@ struct AutoTilerTests {
         tiler.detachWindow(2)
         #expect(env.rects[1] == Rect(0, 0, 1600, 500))
         #expect(env.rects[3] == Rect(0, 500, 1600, 500))
+    }
+
+    @Test func batchMovesEachWindowOnce() {
+        func tileFour(_ env: FakeEnv, _ tiler: AutoTiler, batched: Bool) {
+            for id: WindowID in 1 ... 4 {
+                env.rects[id] = Rect(100, 100, 400, 300)
+                env.keys[id] = env.key
+            }
+            let tileAll = {
+                for id: WindowID in 1 ... 4 {
+                    tiler.autoTile(id, ignoreFocus: true)
+                }
+            }
+            batched ? tiler.batch(tileAll) : tileAll()
+        }
+        let oneByOne = FakeEnv()
+        let oneByOneTiler = AutoTiler(env: oneByOne, gapInner: 0)
+        tileFour(oneByOne, oneByOneTiler, batched: false)
+        tileFour(env, tiler, batched: true)
+
+        #expect(env.moved.sorted() == [1, 2, 3, 4])
+        #expect(oneByOne.moved.count > 4)
+        // The same layout as tiling the windows one by one.
+        #expect(env.rects == oneByOne.rects)
     }
 
     @Test func toggleOrientationSplitsVertically() {
@@ -234,6 +264,173 @@ struct AutoTilerTests {
         tiler.onDrop(1, cursor: r3!.center, key: env.key)
         #expect(env.rects[1] == r3)
         #expect(env.rects[3] == r1)
+    }
+
+    @Test func dropOnCenterWithStackStacks() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        env.open(tiler, 3)
+        // Drag window 1 onto the middle of window 3, with the stack modifiers held.
+        tiler.onDrop(1, cursor: env.rects[3]!.center, key: env.key, stack: true)
+        #expect(env.stacks.map(\.entities) == [[3, 1]])
+        #expect(env.stacks.first?.active == 1)
+        #expect(env.rects[2] == Rect(0, 0, 1600, 500))
+        #expect(env.rects[1] == Rect(0, 524, 1600, 476))
+        #expect(env.rects[3] == env.rects[1])
+    }
+
+    @Test func dropPreviewShowsStackOrSwap() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        let center = env.rects[2]!.center
+        #expect(tiler.dropPreview(1, cursor: center, key: env.key) == .init(area: Rect(800, 0, 800, 1000), stacks: false))
+        #expect(tiler.dropPreview(1, cursor: center, key: env.key, stack: true)?.stacks == true)
+    }
+
+    @Test func stackingSharesOneTile() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleStacking(2)
+        #expect(env.stacks.count == 1)
+        // A new window joins the stack of the focused window.
+        env.open(tiler, 3)
+        #expect(env.stacks.first?.entities == [2, 3])
+        #expect(env.rects[3] == Rect(800, 24, 800, 976))
+        #expect(env.rects[2] == env.rects[3])
+
+        // Window 2 is alone then, so it leaves its stack too.
+        tiler.moveFromStack(3, direction: .down)
+        #expect(env.stacks.isEmpty)
+        #expect(env.rects[2] == Rect(800, 0, 800, 500))
+        #expect(env.rects[3] == Rect(800, 500, 800, 500))
+    }
+
+    @Test func moveWithinStackReordersTabs() {
+        env.open(tiler, 1)
+        tiler.toggleStacking(1)
+        env.open(tiler, 2)
+        env.open(tiler, 3)
+        tiler.moveFromStack(3, direction: .left)
+        #expect(env.stacks.first?.entities == [1, 3, 2])
+        #expect(env.stacks.first?.active == 3)
+    }
+
+    @Test func toggleStackingSplitsStack() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleStacking(2)
+        env.open(tiler, 3)
+        tiler.toggleStacking(3)
+        #expect(env.stacks.isEmpty)
+        #expect(env.rects[1] == Rect(0, 0, 800, 1000))
+        #expect(env.rects[2] == Rect(800, 0, 800, 500))
+        #expect(env.rects[3] == Rect(800, 500, 800, 500))
+    }
+
+    @Test func closingStackedWindowUnstacksTheLastOne() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleStacking(2)
+        env.open(tiler, 3)
+        env.open(tiler, 4)
+        tiler.detachWindow(4)
+        #expect(env.stacks.first?.entities == [2, 3])
+        tiler.detachWindow(3)
+        #expect(env.stacks.isEmpty)
+        #expect(env.rects[1] == Rect(0, 0, 800, 1000))
+        #expect(env.rects[2] == Rect(800, 0, 800, 1000))
+    }
+
+    @Test func draggingOutOfStackOfTwoUnstacks() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleStacking(2)
+        env.open(tiler, 3)
+        // Drop window 3 on the bottom edge of its own stack.
+        tiler.onDrop(3, cursor: Point(1200, 990), key: env.key)
+        #expect(env.stacks.isEmpty)
+        #expect(env.rects[2] == Rect(800, 0, 800, 500))
+        #expect(env.rects[3] == Rect(800, 500, 800, 500))
+    }
+
+    @Test func swapMovesWindowIntoStack() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleStacking(2)
+        env.open(tiler, 3)
+        tiler.attachSwap(1, 3)
+        #expect(env.stacks.first?.entities == [2, 1])
+        #expect(env.rects[3] == Rect(0, 0, 800, 1000))
+        #expect(env.rects[1] == Rect(800, 24, 800, 976))
+    }
+
+    @Test func minimizedWindowReturnsToStack() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleStacking(2)
+        env.open(tiler, 3)
+        let attachment = tiler.attachment(of: 3)!
+        tiler.detachWindow(3)
+        #expect(tiler.restore(3, to: attachment))
+        #expect(env.stacks.first?.entities == [2, 3])
+    }
+
+    @Test func restoreIntoReplacedStackFails() {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        tiler.toggleStacking(2)
+        env.open(tiler, 3)
+        let attachment = tiler.attachment(of: 2)!
+        tiler.detachWindow(2)
+        // Window 3 joins a new stack: the old stack is gone.
+        tiler.stack(1, onto: 3)
+        #expect(!tiler.restore(2, to: attachment))
+        #expect(!tiler.isAttached(2))
+    }
+
+    /// Window 1 on the left, window 2 top right, and a stack of 3 and 4 bottom right.
+    private func openStackBottomRight() -> StackNode {
+        env.open(tiler, 1)
+        env.open(tiler, 2)
+        env.open(tiler, 3)
+        tiler.toggleStacking(3)
+        env.open(tiler, 4)
+        return tiler.findStack(4)!.stack
+    }
+
+    @Test func stackDropOnEdgeMovesWholeStack() {
+        let stack = openStackBottomRight()
+        // Drop the stack on the left edge of window 1.
+        tiler.onDrop(stack, cursor: Point(10, 500), key: env.key, merge: false)
+        #expect(env.stacks.map(\.entities) == [[3, 4]])
+        #expect(env.stacks.first?.active == 4)
+        #expect(env.rects[3] == Rect(0, 24, 400, 976))
+        #expect(env.rects[4] == env.rects[3])
+        #expect(env.rects[1] == Rect(400, 0, 400, 1000))
+        #expect(env.rects[2] == Rect(800, 0, 800, 1000))
+    }
+
+    @Test func stackDropOnCenterSwapsWithWindow() {
+        let stack = openStackBottomRight()
+        tiler.onDrop(stack, cursor: Point(400, 500), key: env.key, merge: false)
+        #expect(env.stacks.map(\.entities) == [[3, 4]])
+        #expect(env.rects[4] == Rect(0, 24, 800, 976))
+        #expect(env.rects[1] == Rect(800, 500, 800, 500))
+    }
+
+    @Test func stackDropOnCenterWithMergeJoinsStacks() {
+        let stack = openStackBottomRight()
+        tiler.onDrop(stack, cursor: Point(1200, 250), key: env.key, merge: true)
+        #expect(env.stacks.map(\.entities) == [[2, 3, 4]])
+        #expect(env.stacks.first?.active == 4)
+        #expect(env.rects[2] == Rect(800, 24, 800, 976))
+        #expect(env.rects[4] == env.rects[2])
+    }
+
+    @Test func stackDropPreviewShowsTabBar() {
+        let stack = openStackBottomRight()
+        let preview = tiler.dropPreview(of: stack, cursor: Point(10, 500), key: env.key)
+        #expect(preview == .init(area: Rect(0, 0, 400, 1000), stacks: true))
     }
 
     @Test func minimizeAndRestoreKeepsPlace() {

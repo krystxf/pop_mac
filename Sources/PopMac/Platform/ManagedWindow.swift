@@ -56,6 +56,11 @@ final class ManagedWindow {
         AX.setSize(element, size)
     }
 
+    /// Moves the window without resizing it.
+    func setPosition(_ point: Point) {
+        AX.setPosition(element, CGPoint(x: point.x, y: point.y))
+    }
+
     /// Raises the window and gives it keyboard focus.
     func focus() {
         // Raise first, so the application keeps this window as its key window.

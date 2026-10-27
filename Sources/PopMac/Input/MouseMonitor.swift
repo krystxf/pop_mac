@@ -32,8 +32,9 @@ final class MouseMonitor {
         let drag = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDragged) { [weak self] _ in
             MainActor.assumeIsolated { self?.mouseDragged() }
         }
-        let up = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            MainActor.assumeIsolated { self?.mouseUp() }
+        let up = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            let flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
+            MainActor.assumeIsolated { self?.mouseUp(flags: flags) }
         }
         monitors = [down, drag, up].compactMap(\.self)
     }
@@ -67,13 +68,16 @@ final class MouseMonitor {
         }
     }
 
-    private func mouseUp() {
+    private func mouseUp(flags: CGEventFlags) {
         previewTimer?.invalidate()
         previewTimer = nil
         manager?.overlay.hide()
+        // The active hint hides while the mouse moves the focused window.
+        manager?.scheduleHint()
 
         let grabbed = candidates
         let since = downTime
+        let stack = manager?.holdsSuper(flags) ?? false
         candidates = [:]
         dragged = nil
         guard !grabbed.isEmpty else { return }
@@ -81,7 +85,7 @@ final class MouseMonitor {
         for (id, rect) in grabbed {
             settle(id, previous: nil, attempts: 10) { [weak self] in
                 guard let manager = self?.manager, !manager.wasMovedByPopMac(id, since: since) else { return }
-                manager.onGrabEnd(id, original: rect)
+                manager.onGrabEnd(id, original: rect, stack: stack)
             }
         }
     }

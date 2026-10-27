@@ -10,6 +10,7 @@ enum AXEvent {
     case windowDeminimized(AXUIElement)
     case windowMoved(AXUIElement)
     case windowResized(AXUIElement)
+    case titleChanged(AXUIElement)
     case appHidden
     case appShown
 }
@@ -35,6 +36,7 @@ final class AppObserver {
         kAXWindowDeminiaturizedNotification,
         kAXWindowMovedNotification,
         kAXWindowResizedNotification,
+        kAXTitleChangedNotification,
     ]
 
     init?(app: NSRunningApplication, pid: pid_t, handler: @escaping (AppObserver, AXEvent) -> Void) {
@@ -106,6 +108,7 @@ final class AppObserver {
         case kAXWindowDeminiaturizedNotification: event = .windowDeminimized(element)
         case kAXWindowMovedNotification: event = .windowMoved(element)
         case kAXWindowResizedNotification: event = .windowResized(element)
+        case kAXTitleChangedNotification: event = .titleChanged(element)
         case kAXApplicationHiddenNotification: event = .appHidden
         case kAXApplicationShownNotification: event = .appShown
         default: return

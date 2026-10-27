@@ -53,9 +53,12 @@ extension WindowManager {
         case .focusDown: focus(.down)
         case .focusUp: focus(.up)
         case .focusRight: focus(.right)
+        case .focusNextTab: focusTab(next: true)
+        case .focusPreviousTab: focusTab(next: false)
         case .tileOrientation: toggleOrientation()
         case .toggleFloating: toggleFloating()
         case .toggleTiling: toggleTiling()
+        case .toggleStackingGlobal: toggleStacking()
         case .tileMoveLeftGlobal: moveFocused(.left)
         case .tileMoveDownGlobal: moveFocused(.down)
         case .tileMoveUpGlobal: moveFocused(.up)
@@ -70,6 +73,7 @@ extension WindowManager {
         case .closeWindow: focusedWindow()?.close()
         case .minimizeWindow: focusedWindow()?.minimize()
         case .managementOrientation: tileModeOrientation()
+        case .toggleStacking: tileModeStacking()
         case .tileMoveLeft: tileModeMove(.left)
         case .tileMoveDown: tileModeMove(.down)
         case .tileMoveUp: tileModeMove(.up)
@@ -97,12 +101,36 @@ extension WindowManager {
         }
     }
 
+    /// Focuses the next or previous tab of the focused window's stack. The last tab wraps to the first.
+    func focusTab(next: Bool) {
+        guard let focused = focusedWindow(), let stack = autoTiler?.findStack(focused.id)?.stack,
+              stack.entities.count > 1, let index = stack.entities.firstIndex(of: focused.id)
+        else { return }
+        let count = stack.entities.count
+        activate(stack.entities[(index + (next ? 1 : count - 1)) % count], moveCursor: false)
+    }
+
     // MARK: - Tiling actions
 
     func toggleOrientation() {
         guard let focused = focusedWindow(), let autoTiler else { return }
         if maximized[focused.id] != nil { return }
         autoTiler.toggleOrientation(focused.id)
+    }
+
+    /// Turns the focused window into a stack, or splits its stack back into tiles.
+    func toggleStacking() {
+        guard let focused = focusedWindow() else { return }
+        toggleStacking(focused.id)
+    }
+
+    private func toggleStacking(_ id: WindowID) {
+        guard let autoTiler else { return }
+        if floating.contains(id) {
+            floating.remove(id)
+            autoTiler.autoTile(id)
+        }
+        autoTiler.toggleStacking(id)
     }
 
     /// Toggles a window between floating and tiling.
@@ -138,12 +166,15 @@ extension WindowManager {
         moveTiled(focused.id, direction)
     }
 
-    /// Moves a tiled window in a direction: onto a window, or onto a display.
+    /// Moves a tiled window in a direction: within or out of its stack, onto a window, or onto a display.
     func moveTiled(_ id: WindowID, _ direction: Direction) {
         guard let autoTiler, autoTiler.isAttached(id) else { return }
 
-        if let target = moveTarget(id, direction) {
-            autoTiler.moveAuto(id, to: target)
+        if autoTiler.findStack(id) != nil {
+            autoTiler.moveFromStack(id, direction: direction)
+        } else if let target = moveTarget(id, direction) {
+            // A window that moves left into a stack becomes its last tab.
+            autoTiler.moveAuto(id, to: target, stackAtEnd: direction == .left)
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -228,6 +259,7 @@ extension WindowManager {
             focused.setFrame(display.workArea)
             focused.focus()
         }
+        scheduleHint()
     }
 
     // MARK: - Tile mode
@@ -245,7 +277,8 @@ extension WindowManager {
         }
 
         tileMode = TileMode(window: focused.id, overlay: rect, swapWindow: nil)
-        overlay.show(rect)
+        hint.hide()
+        overlay.show(rect, like: focused.id)
         registerHotkeys()
     }
 
@@ -254,6 +287,7 @@ extension WindowManager {
         tileMode = nil
         overlay.hide()
         registerHotkeys()
+        scheduleHint()
     }
 
     func acceptTileMode() {
@@ -288,7 +322,7 @@ extension WindowManager {
         else { return }
         mode.overlay = frame
         tileMode = mode
-        overlay.show(frame)
+        overlay.show(frame, like: mode.window)
     }
 
     private func gridCell(for rect: Rect) -> Rect? {
@@ -304,7 +338,7 @@ extension WindowManager {
         let changed = Grid.change(mode.overlay, cell: cell, dx: dx, dy: dy, dw: dw, dh: dh, monitors: monitors)
         mode.overlay = Grid.change(changed, cell: cell, dx: 0, dy: 0, dw: 0, dh: 0, monitors: monitors)
         tileMode = mode
-        overlay.show(mode.overlay)
+        overlay.show(mode.overlay, like: mode.window)
     }
 
     private func tileModeMove(_ direction: Direction) {
@@ -348,12 +382,18 @@ extension WindowManager {
         mode.swapWindow = selected
         mode.overlay = frame
         tileMode = mode
-        overlay.show(frame)
+        overlay.show(frame, like: selected)
     }
 
     private func tileModeOrientation() {
         guard let mode = tileMode, let autoTiler else { return }
         autoTiler.toggleOrientation(mode.window)
+        refreshTileOverlay()
+    }
+
+    private func tileModeStacking() {
+        guard let mode = tileMode else { return }
+        toggleStacking(mode.window)
         refreshTileOverlay()
     }
 }

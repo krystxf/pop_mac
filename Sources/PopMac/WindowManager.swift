@@ -30,9 +30,16 @@ final class WindowManager {
     private(set) var displays: [Display] = Displays.all()
 
     let overlay = OverlayWindow()
+    let hint = HintWindow()
+    private var hintScheduled = false
+    private let tabs = StackTabsController()
+    private var stacksScheduled = false
+    /// When the drop preview of a dragged stack was last updated.
+    private var stackPreviewTime = Date.distantPast
     let hotkeys = HotkeyManager()
     private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
+    private var superDrag: SuperDrag?
     private var signalSource: DispatchSourceSignal?
     var tileMode: TileMode?
     /// Windows to check after a move: the frame they should have, and whether it was set twice.
@@ -63,6 +70,12 @@ final class WindowManager {
 
     func start() {
         applyStyles()
+        // An app raises its window when the user clicks it. The outline and the tab bar follow,
+        // the tab bar last, so the outline's glass never covers it.
+        WindowReorders.observe { [weak self] window in
+            self?.hint.reorder(after: window)
+            self?.tabs.reorder(above: window)
+        }
         registerHotkeys()
         observeWorkspace()
 
@@ -90,6 +103,11 @@ final class WindowManager {
         let mouse = MouseMonitor(manager: self)
         mouse.start()
         self.mouse = mouse
+
+        let superDrag = SuperDrag(manager: self)
+        superDrag.configure(settings)
+        superDrag.start()
+        self.superDrag = superDrag
 
         departureTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkDepartedWindows() }
@@ -156,6 +174,8 @@ final class WindowManager {
 
     private func settingsChanged(from old: Settings) {
         applyStyles()
+        superDrag?.configure(settings)
+        scheduleStacksRefresh()
         if settings.superModifiers != old.superModifiers || settings.primaryModifiers != old.primaryModifiers
             || settings.keybindings != old.keybindings
         {
@@ -180,6 +200,7 @@ final class WindowManager {
             // Windows that no longer match get tiled.
             scanVisibleWindows()
         }
+        scheduleHint()
         onStateChange?()
     }
 
@@ -198,6 +219,7 @@ final class WindowManager {
 
     private func applyStyles() {
         overlay.style(color: overlayColor, radius: settings.overlayBorderRadius)
+        hint.style(color: overlayColor, width: settings.activeHintWidth, radius: settings.overlayBorderRadius)
     }
 
     // MARK: - Applications
@@ -300,12 +322,26 @@ final class WindowManager {
             if let id = lookup(element, pid: pid) { onMinimize(id, minimized: false) }
 
         case let .windowMoved(element), let .windowResized(element):
-            if let id = lookup(element, pid: pid),
+            let moved = lookup(element, pid: pid)
+            if moved != nil, moved == prevFocused[1] {
+                // The outline would trail a window that the mouse moves. It returns at mouse-up.
+                if NSEvent.pressedMouseButtons & 1 != 0 || superDrag?.window != nil { hint.hide() } else { scheduleHint() }
+            }
+            if let id = moved,
                // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
-               autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
+               autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0, superDrag?.window != id,
                Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5
             {
                 scheduleSnapBack(id)
+            }
+
+        case let .titleChanged(element):
+            // Only tab bars show titles. Most title changes are of other windows.
+            let stacked = autoTiler?.forest.allStacks().flatMap(\.entities) ?? []
+            if stacked.contains(where: { windows[$0]?.pid == pid }),
+               let id = lookup(element, pid: pid), stacked.contains(id)
+            {
+                scheduleStacksRefresh()
             }
 
         case .appHidden:
@@ -403,6 +439,16 @@ final class WindowManager {
 
     private func onDestroy(_ id: WindowID) {
         if tileMode?.window == id { exitTileMode() }
+        defer { scheduleHint() }
+        // Closing the focused tab of a stack focuses the tab that takes its place.
+        let closedStack = prevFocused[1] == id ? autoTiler?.findStack(id)?.stack : nil
+        let detach = { [weak self] in
+            guard let self else { return }
+            autoTiler?.detachWindow(id)
+            if let closedStack, closedStack.active != id, autoTiler?.isAttached(closedStack.active) == true {
+                activate(closedStack.active, moveCursor: false)
+            }
+        }
 
         if prevFocused[0] == id {
             prevFocused[0] = nil
@@ -419,11 +465,11 @@ final class WindowManager {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, self.closingTabs.removeValue(forKey: id) != nil else { return }
-                    self.autoTiler?.detachWindow(id)
+                    detach()
                 }
             }
         } else {
-            autoTiler?.detachWindow(id)
+            detach()
         }
         lastSet.removeValue(forKey: id)
         lastApplied.removeValue(forKey: id)
@@ -441,8 +487,14 @@ final class WindowManager {
             prevFocused[1] = window.id
         }
 
+        if let stack = autoTiler?.findStack(window.id)?.stack, stack.active != window.id {
+            stack.active = window.id
+            scheduleStacksRefresh()
+        }
+
         // Every window that can tile is tiled, for example after leaving full screen.
         autoTileIfNeeded(window.id)
+        scheduleHint()
 
         if settings.logOnFocus {
             var message = window.describe()
@@ -454,6 +506,7 @@ final class WindowManager {
     }
 
     private func onMinimize(_ id: WindowID, minimized: Bool) {
+        if id == prevFocused[1] { scheduleHint() }
         guard let autoTiler else { return }
 
         if minimized {
@@ -477,6 +530,7 @@ final class WindowManager {
 
     private func onSpaceChanged() {
         exitTileMode()
+        hint.hide()
         guard !spaceScanScheduled else { return }
         spaceScanScheduled = true
         // The window list lags slightly behind the Space switch.
@@ -571,6 +625,7 @@ final class WindowManager {
             }
         }
 
+        scheduleStacksRefresh()
         if let focused = focusedWindow() { onFocused(focused) }
     }
 
@@ -638,6 +693,7 @@ final class WindowManager {
     func autoTileOn() {
         if autoTiler != nil { return }
         let tiler = AutoTiler(env: self, gapInner: settings.gapInner)
+        tiler.forest.tabHeight = 26
         tiler.forest.onAttach = { [weak self] id in self?.onTileAttach(id) }
         tiler.forest.onDetach = { [weak self] id in self?.onTileDetach(id) }
         autoTiler = tiler
@@ -648,8 +704,11 @@ final class WindowManager {
         }
 
         // Tile from back to front, so the frontmost window is split last.
-        for id in Displays.onScreenWindowIDs().reversed() where windows[id] != nil && isTilable(id) {
-            tiler.autoTile(id, ignoreFocus: true)
+        // Each window moves once, to its final tile.
+        tiler.batch {
+            for id in Displays.onScreenWindowIDs().reversed() where windows[id] != nil && isTilable(id) {
+                tiler.autoTile(id, ignoreFocus: true)
+            }
         }
         onStateChange?()
     }
@@ -658,7 +717,11 @@ final class WindowManager {
         guard let tiler = autoTiler else { return }
         exitTileMode()
         tiler.destroy()
+        // Windows stay where they are, instead of returning to their frames from before tiling.
+        pendingRestore.removeAll()
+        prevRect.removeAll()
         autoTiler = nil
+        tabs.removeAll()
         minimizedAttachments.removeAll()
 
         if settings.tileByDefault {
@@ -709,6 +772,7 @@ final class WindowManager {
             }
             window.setFrame(rect)
         }
+        scheduleHint()
     }
 
     /// Detaches a window without moving it back to its pre-tiling frame.
@@ -729,6 +793,8 @@ final class WindowManager {
     func selectWindow(_ direction: Direction, from id: WindowID) -> WindowID? {
         guard let rect = windows[id]?.frame else { return nil }
         let candidates = activeWindowList().compactMap { window -> WindowCandidate? in
+            // Only the selected tab of a stack can take focus this way.
+            if let stack = autoTiler?.findStack(window.id)?.stack, stack.active != window.id { return nil }
             guard window.id != id, let frame = window.frame else { return nil }
             return WindowCandidate(id: window.id, rect: frame)
         }
@@ -738,12 +804,125 @@ final class WindowManager {
     /// Focuses a window, and moves the cursor onto it if enabled.
     func activate(_ id: WindowID, moveCursor: Bool = true) {
         guard let window = windows[id] else { return }
+        if let stack = autoTiler?.findStack(id)?.stack, stack.active != id {
+            stack.active = id
+            scheduleStacksRefresh()
+        }
         window.focus()
         if moveCursor, settings.mouseCursorFollowsActiveWindow, let frame = window.frame {
             let point = settings.mouseCursorFocusLocation.point(in: frame)
             CGWarpMouseCursorPosition(CGPoint(x: point.x, y: point.y))
             CGAssociateMouseAndMouseCursorPosition(1)
         }
+    }
+
+    // MARK: - Active hint
+
+    func scheduleHint() {
+        guard !hintScheduled else { return }
+        hintScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.hintScheduled = false
+                self?.updateHint()
+            }
+        }
+    }
+
+    private func updateHint() {
+        guard settings.activeHint, tileMode == nil,
+              let id = prevFocused[1], let window = windows[id],
+              NSWorkspace.shared.frontmostApplication.flatMap(Processes.pid(of:)) == window.pid,
+              // The window server knows the frame without asking the app, which may be busy.
+              var frame = Displays.onScreenFrame(of: id), !window.isFullscreen
+        else {
+            hint.hide()
+            return
+        }
+        if let autoTiler, autoTiler.findStack(id) != nil {
+            // The outline holds the stack's tab bar too.
+            frame.y -= autoTiler.forest.tabHeight
+            frame.height += autoTiler.forest.tabHeight
+        }
+        hint.show(around: frame, of: id)
+        tabs.reorder(above: id)
+    }
+
+    // MARK: - Stacks
+
+    func scheduleStacksRefresh() {
+        guard !stacksScheduled else { return }
+        stacksScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.stacksScheduled = false
+                self?.refreshStacks()
+            }
+        }
+    }
+
+    /// Draws a tab bar above each stack on the visible Spaces.
+    private func refreshStacks() {
+        guard let autoTiler else {
+            tabs.removeAll()
+            return
+        }
+
+        let visible = Set(displays.map { currentKey(of: $0) })
+        let height = autoTiler.forest.tabHeight
+        let entries = autoTiler.forest.allStacks().compactMap { stack -> StackTabsController.Entry? in
+            guard let rect = stack.rect, let fork = autoTiler.findStack(stack.active)?.fork,
+                  visible.contains(autoTiler.forest.toplevel(of: fork).workspace)
+            else { return nil }
+            let tabs = stack.entities.compactMap { id -> StackTabBar.Tab? in
+                guard let window = windows[id] else { return nil }
+                return StackTabBar.Tab(id: id, title: window.title, icon: window.app.icon)
+            }
+            return StackTabsController.Entry(stack: stack, frame: Rect(rect.x, rect.y - height, rect.width, height - 2), tabs: tabs)
+        }
+
+        tabs.sync(entries, color: overlayColor) { [weak self] id in
+            MainActor.assumeIsolated { self?.activate(id, moveCursor: false) }
+        } onDrag: { [weak self] stack, phase in
+            MainActor.assumeIsolated {
+                switch phase {
+                case .moved: self?.stackDragMoved(stack)
+                case let .ended(flags): self?.stackDragEnded(stack, flags: flags)
+                }
+            }
+        }
+        scheduleHint()
+    }
+
+    /// Shows where a stack that is dragged by its tab bar would land.
+    private func stackDragMoved(_ stack: StackNode) {
+        // Finding the windows under the cursor asks every app for its frames. Keep it rare.
+        guard let autoTiler, Date().timeIntervalSince(stackPreviewTime) > 0.05 else { return }
+        stackPreviewTime = Date()
+        let cursor = Displays.cursor
+        guard let display = Displays.display(at: cursor, in: displays),
+              let preview = autoTiler.dropPreview(of: stack, cursor: cursor, key: currentKey(of: display))
+        else {
+            overlay.hide()
+            return
+        }
+        overlay.show(preview.area, like: stack.active, tabHeight: preview.stacks ? autoTiler.forest.tabHeight : 0)
+    }
+
+    /// Moves a stack that was dropped after a drag by its tab bar.
+    private func stackDragEnded(_ stack: StackNode, flags: CGEventFlags) {
+        overlay.hide()
+        stackPreviewTime = .distantPast
+        let cursor = Displays.cursor
+        guard let autoTiler, let display = Displays.display(at: cursor, in: displays) else { return }
+        autoTiler.onDrop(stack, cursor: cursor, key: currentKey(of: display), merge: holdsSuper(flags))
+        activate(stack.active, moveCursor: false)
+    }
+
+    /// True if exactly the Super modifiers are held in `flags`.
+    func holdsSuper(_ flags: CGEventFlags) -> Bool {
+        let wanted = CGEventFlags(modifiers: settings.superModifiers)
+        return !wanted.isEmpty && flags.intersection(.modifiers) == wanted
     }
 
     // MARK: - Mouse
@@ -755,13 +934,15 @@ final class WindowManager {
             return
         }
         let cursor = Displays.cursor
+        // Holding the Super modifiers stacks instead of swaps.
+        let stack = holdsSuper(CGEventSource.flagsState(.combinedSessionState))
         guard let display = Displays.display(at: cursor, in: displays),
-              let rect = autoTiler.dropPreview(id, cursor: cursor, key: currentKey(of: display))
+              let preview = autoTiler.dropPreview(id, cursor: cursor, key: currentKey(of: display), stack: stack)
         else {
             overlay.hide()
             return
         }
-        overlay.show(rect)
+        overlay.show(preview.area, like: id, tabHeight: preview.stacks ? autoTiler.forest.tabHeight : 0)
     }
 
     /// True if Pop Mac set the window's frame after `date`.
@@ -770,12 +951,17 @@ final class WindowManager {
     }
 
     /// Handles the end of a mouse drag or resize of a window.
-    func onGrabEnd(_ id: WindowID, original: Rect) {
+    ///
+    /// - Parameter stack: True if the Super modifiers were held at the drop, so a drop on a window's center stacks.
+    func onGrabEnd(_ id: WindowID, original: Rect, stack: Bool = false) {
         overlay.hide()
+        defer { scheduleHint() }
         guard let window = windows[id], let current = window.frame else { return }
         if current.approximatelyEquals(original, tolerance: 1) { return }
         Log.debug("grab end \(id): \(original) -> \(current)")
         maximized.removeValue(forKey: id)
+        // The window took this size, so it is not too small for it.
+        forgetMinimum(id, accepted: current)
 
         guard let autoTiler else {
             if settings.snapToGrid { snap(window) }
@@ -796,7 +982,7 @@ final class WindowManager {
             guard let display = Displays.display(at: cursor, in: displays) else { return }
             let key = currentKey(of: display)
             let previous = autoTiler.attached[id].map { autoTiler.forest.toplevel(of: $0).workspace }
-            autoTiler.onDrop(id, cursor: cursor, key: key, viaOverview: previous?.monitor != key.monitor)
+            autoTiler.onDrop(id, cursor: cursor, key: key, viaOverview: previous?.monitor != key.monitor, stack: stack)
         }
     }
 
@@ -877,6 +1063,7 @@ extension WindowManager: @preconcurrency TilingEnvironment {
             pendingVerify[id] = (target, false)
         }
         if tileMode != nil { refreshTileOverlay() }
+        scheduleHint()
         scheduleVerify()
     }
 
@@ -921,17 +1108,27 @@ extension WindowManager: @preconcurrency TilingEnvironment {
         }
 
         scheduleVerify()
+        scheduleHint()
         for id in retile {
             autoTiler?.reflow(id)
         }
     }
 
     /// Records the size a window kept instead of a smaller target. Returns true if it is new.
+    ///
+    /// A target that fills the display along a side says nothing about a minimum
+    /// on that side: some apps grow a window to the full display height.
     private func learnMinimum(_ id: WindowID, target: Rect, frame: Rect) -> Bool {
         let old = minimumSizes[id] ?? Size(width: 0, height: 0)
         var size = old
-        if frame.width > target.width + 2 { size.width = max(size.width, frame.width) }
-        if frame.height > target.height + 2 { size.height = max(size.height, frame.height) }
+        let work = Displays.display(for: target, in: displays)?.workArea
+        let full = 2 * settings.gapOuter + 2
+        if frame.width > target.width + 2, target.width < (work?.width ?? .infinity) - full {
+            size.width = max(size.width, frame.width)
+        }
+        if frame.height > target.height + 2, target.height < (work?.height ?? .infinity) - full {
+            size.height = max(size.height, frame.height)
+        }
         guard size != old else { return false }
         Log.debug("window \(id) needs at least \(size.width) x \(size.height)")
         minimumSizes[id] = size
@@ -944,5 +1141,9 @@ extension WindowManager: @preconcurrency TilingEnvironment {
         size.width = min(size.width, frame.width)
         size.height = min(size.height, frame.height)
         minimumSizes[id] = size
+    }
+
+    func updateStacks(_: [StackNode]) {
+        scheduleStacksRefresh()
     }
 }

@@ -17,9 +17,7 @@ final class HotkeyManager {
     private var swallowed = Set<Int64>()
     private var tap: CFMachPort?
 
-    private static let modifierMask: UInt64 =
-        CGEventFlags.maskCommand.rawValue | CGEventFlags.maskControl.rawValue
-            | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskShift.rawValue
+    private static let modifierMask = CGEventFlags.modifiers.rawValue
 
     init() {
         installTap()
@@ -81,13 +79,7 @@ final class HotkeyManager {
             return false
         }
 
-        var modifiers: CGEventFlags = []
-        if combo.modifiers.contains(.command) { modifiers.insert(.maskCommand) }
-        if combo.modifiers.contains(.option) { modifiers.insert(.maskAlternate) }
-        if combo.modifiers.contains(.control) { modifiers.insert(.maskControl) }
-        if combo.modifiers.contains(.shift) { modifiers.insert(.maskShift) }
-
-        let binding = Binding(code: Int64(code), modifiers: modifiers.rawValue)
+        let binding = Binding(code: Int64(code), modifiers: CGEventFlags(modifiers: combo.modifiers).rawValue)
         if handlers[binding] != nil {
             Log.warn("\(combo) is bound twice; the last binding wins")
         }
@@ -97,5 +89,22 @@ final class HotkeyManager {
 
     func unregisterAll() {
         handlers.removeAll()
+    }
+}
+
+extension CGEventFlags {
+    /// The modifier keys that key bindings and Super + drag look at.
+    static let modifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
+
+    init(modifiers: some Sequence<MacModifier>) {
+        self = []
+        for modifier in modifiers {
+            switch modifier {
+            case .command: insert(.maskCommand)
+            case .option: insert(.maskAlternate)
+            case .control: insert(.maskControl)
+            case .shift: insert(.maskShift)
+            }
+        }
     }
 }

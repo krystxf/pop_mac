@@ -29,6 +29,13 @@ struct SupportTests {
         #expect(KeyCombo.parse("Escape", superModifiers: [], primaryModifiers: [])?.modifiers.isEmpty == true)
     }
 
+    @Test func tabBindingsCycleStackTabs() {
+        let settings = Settings()
+        let sup: Set<MacModifier> = [.control, .option]
+        #expect(settings.combos(for: .focusNextTab) == [KeyCombo(key: "Tab", modifiers: sup)])
+        #expect(settings.combos(for: .focusPreviousTab) == [KeyCombo(key: "Tab", modifiers: sup.union([.shift]))])
+    }
+
     @Test func floatRulesMatch() {
         #expect(!FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "Calculator", userRules: []))
         // Google Meet calls float in any browser, and as an installed web app.
@@ -75,6 +82,16 @@ struct SupportTests {
         #expect(settings.gapOuter == 8)
         #expect(settings.bindings(for: .focusLeft) == ["<Super>a"])
         #expect(settings.bindings(for: .focusRight) == ["<Super>Right", "<Super>l"])
+        #expect(settings.activeHint)
+        #expect(settings.activeHintWidth == 3)
+        #expect(settings.superDragMovesWindows)
+    }
+
+    @Test func settingsDecodeActiveHint() throws {
+        let json = #"{"activeHint": false, "activeHintWidth": 5}"#
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+        #expect(!settings.activeHint)
+        #expect(settings.activeHintWidth == 5)
     }
 
     @Test func gridChangeSnapsToCells() {
