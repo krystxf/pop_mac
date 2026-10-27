@@ -38,8 +38,8 @@ struct SupportTests {
 
     @Test func floatRulesMatch() {
         #expect(!FloatRules.windowShallFloat(appName: "Calculator", bundleID: "com.apple.calculator", title: "Calculator", userRules: []))
-        // Google Meet calls float in any browser, and as an installed web app.
-        #expect(FloatRules.windowShallFloat(
+        // The Google Meet web app floats. A browser window on a Meet call tiles.
+        #expect(!FloatRules.windowShallFloat(
             appName: "Brave Browser",
             bundleID: "com.brave.Browser",
             title: "Meet - Ambient Intelligence stand-up",

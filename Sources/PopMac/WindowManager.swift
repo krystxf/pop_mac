@@ -571,8 +571,7 @@ final class WindowManager {
         let visibleKeys = Set(displays.map { currentKey(of: $0) })
         var strikes: [WindowID: Int] = [:]
 
-        // A window whose title now matches a float rule, for example a browser
-        // window that switched to a Google Meet call, leaves its tile.
+        // A window whose title now matches a user's float rule leaves its tile.
         for id in Array(autoTiler.attached.keys) where visible.contains(id) && !forceTile.contains(id) {
             if let window = windows[id], matchesFloatRule(window) {
                 Log.debug("window \(id) matches a float rule now; floating it")

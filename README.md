@@ -176,9 +176,10 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   - `"disabled": true` makes matching windows tile. Put it before a broader rule to make an exception to it.
   - ⌃⌥G on a window that a rule floats makes it tile anyway, until Pop Mac restarts.
   - Pop Mac applies rule changes as soon as you save the file.
-  - Built-in rules float Google Meet calls (browser windows titled "Meet - …", and the Google Meet web app) and Keka, whose window has a fixed size.
+  - Built-in rules float the Google Meet web app and Keka, whose window has a fixed size.
     They come after your rules, so `{ "app": "Keka", "disabled": true }` makes Keka tile.
-  - Rules follow window titles: a browser window that switches to a Meet call floats, and tiles again when it switches away.
+  - A browser window on a Meet call tiles. Meet's picture-in-picture window always floats.
+  - Rules follow window titles: a window floats when its title starts to match a rule, and tiles again when it stops matching.
 - The selected stack tab uses the system accent color. Before macOS 26, so do tile mode, drop previews, and the active hint.
 - `overlayBorderRadius` rounds the highlights of windows whose own corner radius Pop Mac cannot read.
 - `superDragMovesWindows` lets you hold the Super modifiers and drag anywhere in a window to move it.

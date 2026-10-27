@@ -49,8 +49,9 @@ public enum FloatRules {
     public static let defaults: [FloatRule] = [
         // Keka's window has a fixed size.
         FloatRule(app: "^com\\.aone\\.keka$"),
-        // Google Meet calls float beside your work. Browsers title a call "Meet - <name>".
-        FloatRule(title: "^Meet [-–—] "),
+        // The Google Meet web app floats beside your work. A browser window on a Meet
+        // tab tiles. Meet's picture-in-picture window is not a standard window, so it
+        // floats without a rule.
         FloatRule(app: "^Google Meet$"),
     ]
 
