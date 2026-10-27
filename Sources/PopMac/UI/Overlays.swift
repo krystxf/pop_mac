@@ -56,11 +56,18 @@ class ShapeWindow: NSPanel, GlidingWindow {
 ///
 /// Clear Liquid Glass on macOS 26 and later, a tinted fill with a border before.
 final class OverlayWindow: ShapeWindow {
+    /// What a drop does, shown in the middle of the highlight as an SF Symbol and a text.
+    struct Label: Equatable {
+        let symbol: String
+        let text: String
+    }
+
     private var glass: NSView?
     /// The corner radius for windows whose radius the window server does not tell.
     private var radius: Double = 10
-    /// Text in the middle, such as "Switch windows" when a drop swaps. It lies above the glass.
+    /// The label in the middle, such as "Switch windows" when a drop swaps. It lies above the glass.
     private let label = NSTextField(labelWithString: "")
+    private var shownLabel: Label?
 
     init() {
         super.init(level: .floating)
@@ -104,8 +111,8 @@ final class OverlayWindow: ShapeWindow {
         }
     }
 
-    /// Shows the highlight with the rounded corners of `window`, and `text` in the middle if given.
-    func show(_ rect: Rect, like window: WindowID?, text: String? = nil) {
+    /// Shows the highlight with the rounded corners of `window`, and `label` in the middle if given.
+    func show(_ rect: Rect, like window: WindowID?, label: Label? = nil) {
         let cornerRadius = window.flatMap(WindowShapes.cornerRadius(of:)) ?? radius
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -115,16 +122,38 @@ final class OverlayWindow: ShapeWindow {
             shape.cornerRadius = cornerRadius
         }
         CATransaction.commit()
-        show(rect)
-        if let text {
-            label.stringValue = text
-            label.isHidden = false
-        }
+        super.show(rect)
+        show(label)
     }
 
     override func show(_ rect: Rect) {
-        label.isHidden = true
         super.show(rect)
+        show(nil as Label?)
+    }
+
+    private func show(_ new: Label?) {
+        label.isHidden = new == nil
+        guard let new, new != shownLabel else { return }
+        shownLabel = new
+        let font = label.font ?? .systemFont(ofSize: 15, weight: .semibold)
+        let text = NSMutableAttributedString()
+        // A white symbol, the size and weight of the text.
+        let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+        if let image = NSImage(systemSymbolName: new.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) {
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            // Centers the symbol on the text's capital letters.
+            attachment.bounds = NSRect(
+                x: 0, y: (font.capHeight - image.size.height) / 2,
+                width: image.size.width, height: image.size.height
+            )
+            text.append(NSAttributedString(attachment: attachment))
+            text.append(NSAttributedString(string: "  "))
+        }
+        text.append(NSAttributedString(string: new.text))
+        text.addAttributes([.font: font, .foregroundColor: NSColor.white], range: NSRange(location: 0, length: text.length))
+        label.attributedStringValue = text
     }
 }
 
@@ -152,6 +181,11 @@ final class HintWindow: ShapeWindow {
             contentView.addSubview(glass)
             self.glass = glass
         }
+    }
+
+    /// True if the outline shows around `window` now.
+    func surrounds(_ window: WindowID) -> Bool {
+        target == window && isVisible && !isFadingOut
     }
 
     /// Orders the outline next to its window again, after the window's app raised it.
@@ -192,8 +226,7 @@ final class HintWindow: ShapeWindow {
         }
         CATransaction.commit()
         // The outline glides along while its window moves. Anywhere else, it appears at once.
-        let follows = target == window && isVisible && !isFadingOut
-        appear(at: Displays.toCocoa(rect.inset(by: -width)), animated: follows)
+        appear(at: Displays.toCocoa(rect.inset(by: -width)), animated: surrounds(window))
         order(placement, relativeTo: Int(window))
         if target != window {
             target = window

@@ -89,6 +89,23 @@ enum Displays {
         return Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height))
     }
 
+    /// The frames of every window that is visible on screen, from front to back.
+    ///
+    /// The window server answers at once, while an app may be busy for a while.
+    static func onScreenFrames() -> [(id: CGWindowID, frame: Rect)] {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        return info.compactMap { entry in
+            guard (entry[kCGWindowLayer as String] as? Int) == 0,
+                  let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict)
+            else { return nil }
+            return (id, Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height)))
+        }
+    }
+
     /// The ids of every window that is visible on screen, from front to back.
     static func onScreenWindowIDs() -> [CGWindowID] {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {

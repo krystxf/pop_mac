@@ -54,6 +54,8 @@ final class WindowManager {
     private var lastSet: [WindowID: Date] = [:]
     /// The tile that each window last received.
     private var lastApplied: [WindowID: Rect] = [:]
+    /// The windows behind a gliding stack's selected tab, with their tiles. They arrive when the selected window does.
+    private var stackFollowers: [WindowID: [(id: WindowID, target: Rect)]] = [:]
     /// Tiled windows that were just closed. A native tab of the same app may take their tile.
     private var closingTabs: [WindowID: (pid: pid_t, frame: Rect)] = [:]
     private var snapBackPending = Set<WindowID>()
@@ -88,7 +90,6 @@ final class WindowManager {
         }
 
         if settings.tileByDefault {
-            savedTrees = SavedLayout.load()?.trees ?? []
             autoTileOn()
         }
 
@@ -479,7 +480,7 @@ final class WindowManager {
 
         let pid = windows[id]?.pid
         windows.removeValue(forKey: id)
-        animator.cancel(id)
+        stopAnimation(id)
         if let autoTiler, autoTiler.isAttached(id), let pid, let frame = lastApplied[id] {
             // Wait briefly: if this was a native tab, the next tab takes its tile.
             closingTabs[id] = (pid, frame)
@@ -682,7 +683,7 @@ final class WindowManager {
 
     /// The workspace key from the window's real frame and Space.
     func actualKey(of id: WindowID) -> WorkspaceKey? {
-        guard let window = windows[id], let frame = window.frame,
+        guard let window = windows[id], let frame = Displays.onScreenFrame(of: id) ?? window.frame,
               let display = Displays.display(for: frame, in: displays)
         else { return nil }
         // After a window crosses displays, macOS can still report its old display's Space.
@@ -724,7 +725,10 @@ final class WindowManager {
             save()
         }
 
-        // Rebuild the layout from before a restart first. Then tile the other windows
+        // The layout from before a restart, or from before tiling was turned off.
+        savedTrees = SavedLayout.load()?.trees ?? []
+
+        // Rebuild the saved layout first, with its stacks. Then tile the other windows
         // from back to front, so the frontmost window is split last.
         // Each window moves once, to its final tile.
         tiler.batch {
@@ -739,15 +743,15 @@ final class WindowManager {
     func autoTileOff() {
         guard let tiler = autoTiler else { return }
         exitTileMode()
+        // Turning tiling on again rebuilds this layout, with its stacks.
+        saveLayout()
         tiler.destroy()
         // Windows stay where they are, instead of returning to their frames from before tiling.
         pendingRestore.removeAll()
         prevRect.removeAll()
         autoTiler = nil
         tabs.removeAll()
-        // The windows stay where they are, so the saved layout is over.
         savedTrees.removeAll()
-        try? FileManager.default.removeItem(at: SavedLayout.defaultURL)
         minimizedAttachments.removeAll()
 
         if settings.tileByDefault {
@@ -917,6 +921,11 @@ final class WindowManager {
             hint.hide()
             return
         }
+        // A hidden outline waits for its window to arrive, instead of appearing around an empty tile.
+        if animator.target(of: id) != nil, !hint.surrounds(id) {
+            hint.hide()
+            return
+        }
         if let autoTiler, autoTiler.findStack(id) != nil {
             // The outline holds the stack's tab bar too.
             frame.y -= autoTiler.forest.tabHeight
@@ -987,7 +996,7 @@ final class WindowManager {
             overlay.hide()
             return
         }
-        overlay.show(preview.area, like: stack.active, text: label(for: preview.action, windows: "windows"))
+        overlay.show(preview.area, like: stack.active, label: label(for: preview.action, windows: "windows"))
     }
 
     /// Moves a stack that was dropped after a drag by its tab bar.
@@ -1008,6 +1017,15 @@ final class WindowManager {
 
     // MARK: - Mouse
 
+    /// Calls `update` 30 times a second, starting after 200 ms like Pop Shell's drop preview.
+    static func dragPreviewTimer(_ update: @escaping @MainActor () -> Void) -> Timer {
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in
+            MainActor.assumeIsolated { update() }
+        }
+        timer.fireDate = Date().addingTimeInterval(0.2)
+        return timer
+    }
+
     /// Shows where a dragged window would land.
     func dragPreview(_ id: WindowID) {
         guard let autoTiler, autoTiler.isAttached(id) else {
@@ -1023,15 +1041,15 @@ final class WindowManager {
             overlay.hide()
             return
         }
-        overlay.show(preview.area, like: id, text: label(for: preview.action, windows: "window"))
+        overlay.show(preview.area, like: id, label: label(for: preview.action, windows: "window"))
     }
 
-    /// The text in the middle of a drop preview. Only a swap or a stack has one.
-    private func label(for action: AutoTiler.DropPreview.Action, windows: String) -> String? {
+    /// The label in the middle of a drop preview. Only a swap or a stack has one.
+    private func label(for action: AutoTiler.DropPreview.Action, windows: String) -> OverlayWindow.Label? {
         switch action {
         case .move: nil
-        case .swap: "Switch windows"
-        case .stack: "Stack \(windows)"
+        case .swap: OverlayWindow.Label(symbol: "rectangle.2.swap", text: "Switch windows")
+        case .stack: OverlayWindow.Label(symbol: "square.stack", text: "Stack \(windows)")
         }
     }
 
@@ -1106,8 +1124,10 @@ extension WindowManager: @preconcurrency TilingEnvironment {
         display(monitor)?.workArea
     }
 
+    /// The window server's frame of a window on screen, which needs no call to the app.
     func windowRect(_ window: WindowID) -> Rect? {
-        windows[window]?.frame
+        guard let managed = windows[window] else { return nil }
+        return Displays.onScreenFrame(of: window) ?? managed.frame
     }
 
     func workspaceKey(of window: WindowID) -> WorkspaceKey? {
@@ -1130,14 +1150,30 @@ extension WindowManager: @preconcurrency TilingEnvironment {
         windows[window]?.isMinimized ?? true
     }
 
+    /// The managed windows under a point, from front to back.
+    ///
+    /// The frames come from the window server, so a drag preview never waits for an app.
     func windows(at point: Point, key: WorkspaceKey) -> [WindowID] {
-        Displays.onScreenWindowIDs().filter { id in
-            guard let frame = windows[id]?.frame, frame.contains(point) else { return false }
-            return workspaceKey(of: id) == key
+        Displays.onScreenFrames().compactMap { id, frame in
+            guard windows[id] != nil, frame.contains(point), workspaceKey(of: id) == key else { return nil }
+            return id
         }
     }
 
     func applyLayout(_ moves: [(WindowID, Rect)]) {
+        // Only the selected tab of a moving stack glides. The windows behind it would trail
+        // out of step and show at its edges, so they wait out of sight and arrive with it.
+        var selectedTab: [WindowID: WindowID] = [:]
+        if Motion.isOn, let autoTiler {
+            let moving = Set(moves.map(\.0))
+            for stack in autoTiler.forest.allStacks() where moving.contains(stack.active) {
+                for id in stack.entities where id != stack.active {
+                    selectedTab[id] = stack.active
+                }
+            }
+        }
+        var followers: [WindowID: [(id: WindowID, target: Rect)]] = [:]
+
         for (id, rect) in moves {
             guard let window = windows[id], maximized[id] == nil, !window.isFullscreen else { continue }
             var target = rect.rounded()
@@ -1148,18 +1184,61 @@ extension WindowManager: @preconcurrency TilingEnvironment {
             }
             lastApplied[id] = target
             if animator.target(of: id) == target { continue }
-            if animator.target(of: id) == nil, let frame = window.frame, frame.approximatelyEquals(target, tolerance: 1) { continue }
+            if animator.target(of: id) == nil, let frame = Displays.onScreenFrame(of: id) ?? window.frame,
+               frame.approximatelyEquals(target, tolerance: 1) { continue }
             lastSet[id] = Date()
-            move(window, to: target) { [weak self] in
-                // The window's own move events trail the animation.
-                self?.lastSet[id] = Date()
-                self?.pendingVerify[id] = (target, false)
-                self?.scheduleVerify()
+            if let active = selectedTab[id], let hidden = hidingPlace(for: id) {
+                animator.animate(window, from: hidden, to: hidden, duration: 0) {}
+                followers[active, default: []].append((id, target))
+                continue
             }
+            move(window, to: target) { [weak self] in
+                guard let self else { return }
+                arrived(id, at: target)
+                placeFollowers(of: id)
+            }
+        }
+        for (active, list) in followers {
+            stackFollowers[active] = list
+            // A selected tab that is in place already does not glide, so its followers come at once.
+            if animator.target(of: active) == nil { placeFollowers(of: active) }
         }
         if tileMode != nil { refreshTileOverlay() }
         scheduleHint()
         scheduleVerify()
+    }
+
+    /// Records that Pop Mac moved a window to its tile, and checks the frame soon.
+    private func arrived(_ id: WindowID, at target: Rect) {
+        // The window's own move events trail the move.
+        lastSet[id] = Date()
+        pendingVerify[id] = (target, false)
+        scheduleVerify()
+        scheduleHint()
+    }
+
+    /// Stops a gliding window where it is. Windows that wait for it go to their tiles at once.
+    func stopAnimation(_ id: WindowID) {
+        animator.cancel(id)
+        placeFollowers(of: id)
+    }
+
+    /// Moves the windows behind a stack's selected tab to their tile, now that the selected window is there.
+    private func placeFollowers(of active: WindowID) {
+        for follower in stackFollowers.removeValue(forKey: active) ?? [] {
+            guard let window = windows[follower.id] else { continue }
+            animator.animate(window, from: follower.target, to: follower.target, duration: 0) { [weak self] in
+                self?.arrived(follower.id, at: follower.target)
+            }
+        }
+    }
+
+    /// A place just off the bottom-right corner of a window's display, where the window is out of sight.
+    ///
+    /// macOS keeps a sliver of the window on screen there. Nil if the window is not on screen.
+    private func hidingPlace(for id: WindowID) -> Rect? {
+        guard let frame = Displays.onScreenFrame(of: id), let display = Displays.display(for: frame, in: displays) else { return nil }
+        return Rect(display.frame.maxX - 1, display.frame.maxY - 1, frame.width, frame.height)
     }
 
     /// Moves a window to `rect`. A window on screen glides there while animations are on.

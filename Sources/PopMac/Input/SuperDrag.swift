@@ -21,6 +21,15 @@ final class SuperDrag {
         /// The modifiers held at mouse-up.
         var releaseFlags: CGEventFlags = []
         var moveScheduled = false
+        var mover: Mover?
+    }
+
+    /// What the move queue needs to move the grabbed window.
+    private struct Mover: @unchecked Sendable {
+        let element: AXUIElement
+        /// The window's frame and the cursor at mouse-down.
+        let frame: Rect
+        let cursor: CGPoint
     }
 
     private let shared = OSAllocatedUnfairLock(initialState: Shared())
@@ -29,6 +38,10 @@ final class SuperDrag {
     /// The window being moved, with its frame and the cursor at mouse-down.
     private var grab: (id: WindowID, frame: Rect, cursor: CGPoint)?
     private var previewTimer: Timer?
+    /// The window that was let go, with its frame at mouse-down and whether Super was held at mouse-up.
+    private var drop: (id: WindowID, original: Rect, stack: Bool)?
+    /// Moves the window off the main thread: each move waits for the window's app.
+    private let moveQueue = DispatchQueue(label: "dev.krystof.popmac.super-drag", qos: .userInteractive)
 
     init(manager: WindowManager) {
         self.manager = manager
@@ -92,8 +105,8 @@ final class SuperDrag {
                 return (true, !state.moveScheduled)
             }
             if schedule {
-                // Moves the window once per main run loop pass, however many drag events arrive.
-                DispatchQueue.main.async { MainActor.assumeIsolated { self.move() } }
+                // Moves the window once per pass of the queue, however many drag events arrive.
+                moveQueue.async { self.move() }
             }
             if grabbing { return nil }
         case .leftMouseUp:
@@ -120,46 +133,56 @@ final class SuperDrag {
               let window = manager.windows[id], !window.isFullscreen
         else { return false }
         // The mouse takes over from a running animation.
-        manager.animator.cancel(id)
+        manager.stopAnimation(id)
         guard let frame = window.frame else { return false }
 
         grab = (id, frame, point)
         shared.withLock {
             $0.grabbing = true
             $0.cursor = point
+            $0.mover = Mover(element: window.element, frame: frame, cursor: point)
         }
         // Focus after the tap returns, so the click is not held up.
         DispatchQueue.main.async { window.focus() }
         // Show where the window will land, like a title bar drag does.
-        previewTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let id = self.grab?.id else { return }
-                self.manager?.dragPreview(id)
-            }
+        previewTimer = WindowManager.dragPreviewTimer { [weak self] in
+            guard let self, let id = grab?.id else { return }
+            self.manager?.dragPreview(id)
         }
         return true
     }
 
-    private func move() {
-        let cursor = shared.withLock { state -> CGPoint? in
+    /// Runs on the move queue.
+    private nonisolated func move() {
+        let step = shared.withLock { state -> (Mover, CGPoint)? in
             state.moveScheduled = false
-            return state.cursor
+            guard let mover = state.mover, let cursor = state.cursor else { return nil }
+            return (mover, cursor)
         }
-        guard let grab, let cursor, let window = manager?.windows[grab.id] else { return }
-        window.setPosition(Point(grab.frame.x + cursor.x - grab.cursor.x, grab.frame.y + cursor.y - grab.cursor.y))
+        guard let (mover, cursor) = step else { return }
+        let origin = CGPoint(x: mover.frame.x + cursor.x - mover.cursor.x, y: mover.frame.y + cursor.y - mover.cursor.y)
+        AX.setPosition(mover.element, origin)
     }
 
     private func end() {
         previewTimer?.invalidate()
         previewTimer = nil
-        move()
         guard let grab, let manager else { return }
         self.grab = nil
-        let stack = manager.holdsSuper(shared.withLock(\.releaseFlags))
-        // Let the app apply the last move before the drop reads the frame.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak manager] in
-            MainActor.assumeIsolated { manager?.onGrabEnd(grab.id, original: grab.frame, stack: stack) }
+        drop = (grab.id, grab.frame, manager.holdsSuper(shared.withLock(\.releaseFlags)))
+        // Make the last move, and let the app apply it before the drop reads the frame.
+        moveQueue.async {
+            self.move()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                MainActor.assumeIsolated { self.finishDrop() }
+            }
         }
+    }
+
+    private func finishDrop() {
+        guard let drop else { return }
+        self.drop = nil
+        manager?.onGrabEnd(drop.id, original: drop.original, stack: drop.stack)
     }
 
     /// The frontmost window of another app that holds the point and that Pop Mac manages.

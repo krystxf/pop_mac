@@ -14,9 +14,9 @@ enum Motion {
     }
 
     /// How long a window or a highlight takes to reach a new frame.
-    static let duration = 0.22
+    nonisolated static let duration = 0.22
     /// How long a highlight takes to appear or disappear.
-    static let fadeDuration = 0.15
+    nonisolated static let fadeDuration = 0.15
 
     /// Ease-out cubic: fast at the start, gentle at the end.
     nonisolated static func ease(_ progress: Double) -> Double {
@@ -56,6 +56,8 @@ extension GlidingWindow {
             orderFrontRegardless()
         }
         let moves = frame != targetFrame
+        // Nothing to do for a window that is in place and fully shown, as when a drag preview repeats.
+        if !moves, alphaValue == 1 { return }
         targetFrame = frame
         NSAnimationContext.runAnimationGroup { context in
             context.duration = animated ? Motion.duration : 0

@@ -47,22 +47,21 @@ final class MouseMonitor {
 
     /// Starts the drop preview once one of the candidates moves without a size change.
     private func mouseDragged() {
-        guard dragged == nil, !candidates.isEmpty, Date().timeIntervalSince(lastCheck) > 0.1, let manager else { return }
+        guard dragged == nil, !candidates.isEmpty, Date().timeIntervalSince(lastCheck) > 0.1, manager != nil else { return }
         lastCheck = Date()
 
+        // The window server's frames: the app of a dragged window is busy and slow to answer.
+        let frames = Dictionary(Displays.onScreenFrames().map { ($0.id, $0.frame) }, uniquingKeysWith: { first, _ in first })
         for (id, rect) in candidates {
-            guard let frame = manager.windows[id]?.frame else { continue }
+            guard let frame = frames[id] else { continue }
             let moved = abs(frame.x - rect.x) > 1 || abs(frame.y - rect.y) > 1
             let resized = abs(frame.width - rect.width) > 1 || abs(frame.height - rect.height) > 1
             guard moved, !resized else { continue }
 
             dragged = id
-            // Show where the window will land, like Pop Shell does after 200 ms.
-            previewTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, let dragged = self.dragged else { return }
-                    self.manager?.dragPreview(dragged)
-                }
+            previewTimer = WindowManager.dragPreviewTimer { [weak self] in
+                guard let self, let dragged else { return }
+                manager?.dragPreview(dragged)
             }
             return
         }
@@ -97,7 +96,7 @@ final class MouseMonitor {
     private func settle(_ id: WindowID, previous: Rect?, attempts: Int, done: @escaping () -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let frame = self.manager?.windows[id]?.frame else { return }
+                guard let self, let frame = Displays.onScreenFrame(of: id) ?? self.manager?.windows[id]?.frame else { return }
                 if frame == previous || attempts <= 0 {
                     done()
                 } else {
