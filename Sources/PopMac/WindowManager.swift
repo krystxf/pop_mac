@@ -33,6 +33,8 @@ final class WindowManager {
     let hint = HintWindow()
     let animator = WindowAnimator()
     private var hintScheduled = false
+    /// When the outline started to wait for its window's real frame.
+    private var hintWaitStart: Date?
     private let tabs = StackTabsController()
     private var stacksScheduled = false
     /// When the drop preview of a dragged stack was last updated.
@@ -507,6 +509,7 @@ final class WindowManager {
     }
 
     func onFocused(_ window: ManagedWindow) {
+        hintWaitStart = nil
         if prevFocused[1] != window.id {
             prevFocused[0] = prevFocused[1]
             prevFocused[1] = window.id
@@ -950,6 +953,14 @@ final class WindowManager {
             hint.hide()
             return
         }
+        // In Mission Control and App Exposé, and while they close, the window server
+        // reports the frame of the window's thumbnail. Wait for the real frame.
+        if animator.target(of: id) == nil, let real = window.frame, !real.approximatelyEquals(frame, tolerance: 2) {
+            hint.hide()
+            retryHint()
+            return
+        }
+        hintWaitStart = nil
         if let autoTiler, autoTiler.findStack(id) != nil {
             // The outline holds the stack's tab bar too.
             frame.y -= autoTiler.forest.tabHeight
@@ -957,6 +968,16 @@ final class WindowManager {
         }
         hint.show(around: frame, of: id)
         tabs.reorder(above: id)
+    }
+
+    /// Updates the outline again soon, for up to 3 seconds after it started to wait.
+    private func retryHint() {
+        let start = hintWaitStart ?? Date()
+        hintWaitStart = start
+        guard Date().timeIntervalSince(start) < 3 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            MainActor.assumeIsolated { self?.scheduleHint() }
+        }
     }
 
     // MARK: - Stacks
