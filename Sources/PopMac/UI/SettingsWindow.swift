@@ -80,16 +80,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         }
     }
 
-    var subtitle: String {
-        switch self {
-        case .general: "How Pop Mac starts and follows your focus."
-        case .layout: "Gaps between tiles, and how wide a tile can get."
-        case .appearance: "The highlight that shows where a window will go."
-        case .shortcuts: "The keys behind Super and Primary, and every shortcut."
-        case .floating: "Rules for windows that float instead of tile."
-        }
-    }
-
     var symbol: String {
         switch self {
         case .general: "gearshape.fill"
@@ -129,7 +119,12 @@ final class SettingsWindowController {
             sidebar.minimumThickness = 200
             sidebar.maximumThickness = 240
             sidebar.canCollapse = false
-            let detail = NSSplitViewItem(viewController: NSHostingController(rootView: SettingsDetail(model: model, selection: selection)))
+            let detailHost = NSHostingController(rootView: SettingsDetail(model: model, selection: selection))
+            if #available(macOS 14, *) {
+                // The page's navigation title becomes the window title.
+                detailHost.sceneBridgingOptions = [.title, .toolbars]
+            }
+            let detail = NSSplitViewItem(viewController: detailHost)
             detail.minimumThickness = 480
             split.addSplitViewItem(sidebar)
             split.addSplitViewItem(detail)
@@ -138,7 +133,6 @@ final class SettingsWindowController {
             window.title = "Pop Mac Settings"
             window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
             window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
             // An empty unified toolbar places the traffic lights over the sidebar, like System Settings.
             window.toolbar = NSToolbar(identifier: "settings")
             window.toolbarStyle = .unified
@@ -207,7 +201,7 @@ private struct SettingsDetail: View {
     @ObservedObject var selection: SettingsTabSelection
 
     var body: some View {
-        SettingsPage(tab: selection.tab) {
+        Group {
             switch selection.tab {
             case .general: GeneralSettings(model: model)
             case .layout: LayoutSettings(model: model)
@@ -216,32 +210,8 @@ private struct SettingsDetail: View {
             case .floating: FloatingSettings(model: model)
             }
         }
+        .navigationTitle(selection.tab.title)
         .frame(minWidth: 480, minHeight: 520)
-    }
-}
-
-/// A page: a glass header card, then the page's settings.
-private struct SettingsPage<Content: View>: View {
-    let tab: SettingsTab
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                SettingsIcon(tab: tab, size: 42)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(tab.title).font(.title2.weight(.semibold))
-                    Text(tab.subtitle).font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding(16)
-            .glassCard(cornerRadius: 20, tint: tab.color)
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-
-            content
-        }
     }
 }
 
@@ -267,9 +237,9 @@ private struct SettingsIcon: View {
 private extension View {
     /// Liquid Glass on macOS 26 and later, the regular material before.
     @ViewBuilder
-    func glassCard(cornerRadius: CGFloat, tint: Color? = nil) -> some View {
+    func glassCard(cornerRadius: CGFloat) -> some View {
         if #available(macOS 26, *) {
-            glassEffect(tint.map { .regular.tint($0.opacity(0.18)) } ?? .regular, in: .rect(cornerRadius: cornerRadius))
+            glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
         } else {
             background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
