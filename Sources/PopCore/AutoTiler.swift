@@ -622,9 +622,23 @@ public final class AutoTiler {
 
     /// What the overlay shows while a window is dragged.
     public struct DropPreview: Equatable {
+        /// What a drop does with the dragged window and the target.
+        public enum Action: Equatable {
+            /// Splits a tile, fills the display, or puts the window back.
+            case move
+            /// Switches the places of the dragged window and the target.
+            case swap
+            /// Stacks the dragged window onto the target.
+            case stack
+        }
+
         public let area: Rect
-        /// True if the drop stacks the window onto the target.
-        public let stacks: Bool
+        public let action: Action
+
+        public init(area: Rect, action: Action = .move) {
+            self.area = area
+            self.action = action
+        }
     }
 
     /// The area that the overlay shows while a window is dragged.
@@ -634,7 +648,7 @@ public final class AutoTiler {
         guard let fork = forest.attached[window] else { return nil }
 
         if largestOnWorkspace(key) == nil {
-            return outerArea(key.monitor).map { DropPreview(area: $0, stacks: false) }
+            return outerArea(key.monitor).map { DropPreview(area: $0) }
         }
 
         guard let target = dropTarget(window, cursor: cursor, key: key) else { return nil }
@@ -643,7 +657,7 @@ public final class AutoTiler {
         if let tile = centerTile(of: target, cursor: cursor) {
             // A drop back on the window's own stack only puts it back.
             let sameStack = findStack(window).map { $0.stack.contains(target) } ?? false
-            return DropPreview(area: tile, stacks: stack && !sameStack)
+            return DropPreview(area: tile, action: sameStack ? .move : stack ? .stack : .swap)
         }
 
         let area: Rect
@@ -663,7 +677,7 @@ public final class AutoTiler {
         case (.vertical, true): Rect(area.x, area.y, area.width, hh)
         case (.vertical, false): Rect(area.x, area.y + hh, area.width, hh)
         }
-        return DropPreview(area: half, stacks: false)
+        return DropPreview(area: half)
     }
 
     /// Handles a tiled window that the user dropped with the mouse.
@@ -791,11 +805,11 @@ public final class AutoTiler {
     public func dropPreview(of stack: StackNode, cursor: Point, key: WorkspaceKey, merge: Bool = false) -> DropPreview? {
         guard let fork = forest.attached[stack.active] else { return nil }
         if largestOnWorkspace(key) == nil {
-            return outerArea(key.monitor).map { DropPreview(area: $0, stacks: false) }
+            return outerArea(key.monitor).map { DropPreview(area: $0) }
         }
         guard let target = dropTarget(of: stack, cursor: cursor, key: key) else { return nil }
         if let tile = centerTile(of: target, cursor: cursor) {
-            return DropPreview(area: tile, stacks: merge)
+            return DropPreview(area: tile, action: merge ? .stack : .swap)
         }
         guard let area = forest.attached[target] === fork ? fork.area : env.windowRect(target) else { return nil }
         let (orientation, swap) = cursorPlacement(area: area, cursor: cursor)
@@ -806,7 +820,7 @@ public final class AutoTiler {
         case (.vertical, true): Rect(area.x, area.y, area.width, hh)
         case (.vertical, false): Rect(area.x, area.y + hh, area.width, hh)
         }
-        return DropPreview(area: half, stacks: false)
+        return DropPreview(area: half)
     }
 
     /// Moves a whole stack that the user dropped with the mouse.

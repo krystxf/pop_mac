@@ -12,7 +12,7 @@ It ports Pop Shell's tiling tree, keyboard workflow, tile mode, stacking, and la
 | Directional focus with Super + arrows / hjkl | Same |
 | Tile mode (Super + Return): move, resize, swap, orientation, stacking | Same, including the grid overlay for floating windows |
 | Stacking (Super + S) with a tab bar | Same. Click a tab, or press Super + Tab and Super + Shift + Tab, to switch tabs. |
-| Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows, or hold Super at the drop to stack them. |
+| Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows, or hold Super at the drop to stack them. The preview says "Switch windows" or "Stack window". |
 | Resize a tiled window with the mouse | Same. The neighbors follow. |
 | Super + drag moves a window | Same. Hold Super (⌃⌥ by default) and drag anywhere in a window. |
 | Toggle floating (Super + G), floating window exceptions | Same. Every standard window tiles, unless you float it with Super + G or a rule in `floatRules` matches it. |

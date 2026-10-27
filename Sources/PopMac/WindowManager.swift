@@ -977,7 +977,7 @@ final class WindowManager {
             overlay.hide()
             return
         }
-        overlay.show(preview.area, like: stack.active, text: preview.stacks ? "Stack windows" : nil)
+        overlay.show(preview.area, like: stack.active, text: label(for: preview.action, windows: "windows"))
     }
 
     /// Moves a stack that was dropped after a drag by its tab bar.
@@ -1013,7 +1013,16 @@ final class WindowManager {
             overlay.hide()
             return
         }
-        overlay.show(preview.area, like: id, text: preview.stacks ? "Stack window" : nil)
+        overlay.show(preview.area, like: id, text: label(for: preview.action, windows: "window"))
+    }
+
+    /// The text in the middle of a drop preview. Only a swap or a stack has one.
+    private func label(for action: AutoTiler.DropPreview.Action, windows: String) -> String? {
+        switch action {
+        case .move: nil
+        case .swap: "Switch windows"
+        case .stack: "Stack \(windows)"
+        }
     }
 
     /// True if Pop Mac set the window's frame after `date`.

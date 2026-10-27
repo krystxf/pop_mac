@@ -284,8 +284,10 @@ struct AutoTilerTests {
         env.open(tiler, 1)
         env.open(tiler, 2)
         let center = env.rects[2]!.center
-        #expect(tiler.dropPreview(1, cursor: center, key: env.key) == .init(area: Rect(800, 0, 800, 1000), stacks: false))
-        #expect(tiler.dropPreview(1, cursor: center, key: env.key, stack: true)?.stacks == true)
+        #expect(tiler.dropPreview(1, cursor: center, key: env.key) == .init(area: Rect(800, 0, 800, 1000), action: .swap))
+        #expect(tiler.dropPreview(1, cursor: center, key: env.key, stack: true)?.action == .stack)
+        // A drop near an edge splits the tile, so it neither swaps nor stacks.
+        #expect(tiler.dropPreview(1, cursor: Point(810, 500), key: env.key)?.action == .move)
     }
 
     @Test func stackingSharesOneTile() {
@@ -430,9 +432,9 @@ struct AutoTilerTests {
 
     @Test func stackDropPreviewStacksOnlyWhenMerging() {
         let stack = openStackBottomRight()
-        #expect(tiler.dropPreview(of: stack, cursor: Point(10, 500), key: env.key) == .init(area: Rect(0, 0, 400, 1000), stacks: false))
-        #expect(tiler.dropPreview(of: stack, cursor: Point(400, 500), key: env.key, merge: true)?.stacks == true)
-        #expect(tiler.dropPreview(of: stack, cursor: Point(400, 500), key: env.key, merge: false)?.stacks == false)
+        #expect(tiler.dropPreview(of: stack, cursor: Point(10, 500), key: env.key) == .init(area: Rect(0, 0, 400, 1000)))
+        #expect(tiler.dropPreview(of: stack, cursor: Point(400, 500), key: env.key, merge: true)?.action == .stack)
+        #expect(tiler.dropPreview(of: stack, cursor: Point(400, 500), key: env.key, merge: false)?.action == .swap)
     }
 
     @Test func savedLayoutRebuildsTheSameTiles() throws {

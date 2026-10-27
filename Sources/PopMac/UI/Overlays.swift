@@ -57,7 +57,7 @@ final class OverlayWindow: ShapeWindow {
     private var glass: NSView?
     /// The corner radius for windows whose radius the window server does not tell.
     private var radius: Double = 10
-    /// Text in the middle, such as "Stack window" when a drop stacks. It lies above the glass.
+    /// Text in the middle, such as "Switch windows" when a drop swaps. It lies above the glass.
     private let label = NSTextField(labelWithString: "")
 
     init() {
