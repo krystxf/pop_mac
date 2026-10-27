@@ -136,8 +136,9 @@ final class WindowManager {
         }
         center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let focused = self.focusedWindow() else { return }
-                self.onFocused(focused)
+                guard let self else { return }
+                if let focused = self.focusedWindow() { self.onFocused(focused) }
+                self.scheduleFocusCheck()
             }
         }
         center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -329,6 +330,8 @@ final class WindowManager {
             }
             if let id, let window = windows[id], NSWorkspace.shared.frontmostApplication.flatMap(Processes.pid(of:)) == pid {
                 onFocused(window)
+            } else {
+                scheduleFocusCheck()
             }
 
         case let .windowMinimized(element):
@@ -527,6 +530,26 @@ final class WindowManager {
         }
     }
 
+    /// Asks for the focused window again a moment later, and twice.
+    ///
+    /// Mission Control and App Exposé report the window that the user picked while the
+    /// Dock is still frontmost, and the app's activation can come before its focus moves.
+    /// Without a second look, the outline stays on the window that had focus before.
+    private func scheduleFocusCheck() {
+        for delay in [0.3, 0.8] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if let focused = self.focusedWindow(), focused.id != self.prevFocused[1] {
+                        self.onFocused(focused)
+                    } else {
+                        self.scheduleHint()
+                    }
+                }
+            }
+        }
+    }
+
     private func onMinimize(_ id: WindowID, minimized: Bool) {
         if id == prevFocused[1] { scheduleHint() }
         guard let autoTiler else { return }
@@ -553,6 +576,7 @@ final class WindowManager {
     private func onSpaceChanged() {
         exitTileMode()
         hint.hide()
+        scheduleFocusCheck()
         guard !spaceScanScheduled else { return }
         spaceScanScheduled = true
         // The window list lags slightly behind the Space switch.
