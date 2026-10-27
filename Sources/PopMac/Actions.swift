@@ -219,7 +219,7 @@ extension WindowManager {
             autoTiler.detachWindow(focused.id)
             autoTiler.attachToWorkspace(focused.id, key: currentKey(of: nextDisplay))
         } else {
-            focused.setFrame(MonitorLocator.proportionalMove(rect, from: display.workArea, to: nextDisplay.workArea).rounded())
+            move(focused, to: MonitorLocator.proportionalMove(rect, from: display.workArea, to: nextDisplay.workArea).rounded())
         }
 
         let id = focused.id
@@ -252,11 +252,11 @@ extension WindowManager {
             if autoTiler?.isAttached(focused.id) == true {
                 autoTiler?.reflow(focused.id)
             } else if let previous = saved ?? prevRect[focused.id] {
-                focused.setFrame(previous)
+                move(focused, to: previous)
             }
         } else {
             maximized[focused.id] = frame
-            focused.setFrame(display.workArea)
+            move(focused, to: display.workArea)
             focused.focus()
         }
         scheduleHint()
@@ -302,12 +302,12 @@ extension WindowManager {
                 autoTiler.attachSwap(swap, mode.window)
                 treeSwapped = true
             } else if let frame = window.frame {
-                other.setFrame(frame)
+                move(other, to: frame)
             }
         }
 
         if !treeSwapped, autoTiler?.isAttached(mode.window) != true {
-            window.setFrame(mode.overlay)
+            move(window, to: mode.overlay)
         }
 
         exitTileMode()

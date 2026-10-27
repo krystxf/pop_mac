@@ -11,8 +11,13 @@ extension NSColor {
 }
 
 /// A borderless, click-through window that draws a rounded rectangle.
-class ShapeWindow: NSPanel {
+///
+/// It glides from place to place, and fades in and out.
+class ShapeWindow: NSPanel, GlidingWindow {
     let shape = CALayer()
+    var targetFrame: NSRect?
+    var fadeGeneration = 0
+    var isFadingOut = false
 
     init(level: NSWindow.Level) {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -28,6 +33,8 @@ class ShapeWindow: NSPanel {
 
         let view = NSView()
         view.wantsLayer = true
+        // The shape follows the window's size while it glides.
+        shape.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         view.layer?.addSublayer(shape)
         contentView = view
     }
@@ -37,16 +44,11 @@ class ShapeWindow: NSPanel {
 
     /// Shows the shape around a top-left-origin rectangle.
     func show(_ rect: Rect) {
-        setFrame(Displays.toCocoa(rect), display: false)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        shape.frame = contentView?.bounds ?? .zero
-        CATransaction.commit()
-        if !isVisible { orderFrontRegardless() }
+        appear(at: Displays.toCocoa(rect), growing: true)
     }
 
     func hide() {
-        orderOut(nil)
+        disappear()
     }
 }
 
@@ -189,7 +191,9 @@ final class HintWindow: ShapeWindow {
             shape.cornerRadius = cornerRadius
         }
         CATransaction.commit()
-        show(rect.inset(by: -width))
+        // The outline glides along while its window moves. Anywhere else, it appears at once.
+        let follows = target == window && isVisible && !isFadingOut
+        appear(at: Displays.toCocoa(rect.inset(by: -width)), animated: follows)
         order(placement, relativeTo: Int(window))
         if target != window {
             target = window

@@ -117,8 +117,11 @@ final class SuperDrag {
     /// Grabs the frontmost managed window under the cursor. Returns false if there is none.
     private func begin(at point: CGPoint) -> Bool {
         guard let manager, !SpaceMover.isMoving, let id = windowID(at: point),
-              let window = manager.windows[id], !window.isFullscreen, let frame = window.frame
+              let window = manager.windows[id], !window.isFullscreen
         else { return false }
+        // The mouse takes over from a running animation.
+        manager.animator.cancel(id)
+        guard let frame = window.frame else { return false }
 
         grab = (id, frame, point)
         shared.withLock {

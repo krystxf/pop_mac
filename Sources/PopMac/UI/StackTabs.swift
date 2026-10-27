@@ -4,8 +4,12 @@ import PopCore
 /// The tab bar drawn above a stack of windows.
 ///
 /// A click on a tab focuses its window. A drag moves the whole stack.
-final class StackTabBar: NSPanel {
+/// The bar glides along when its stack moves.
+final class StackTabBar: NSPanel, GlidingWindow {
     private let stackView = NSStackView()
+    var targetFrame: NSRect?
+    var fadeGeneration = 0
+    var isFadingOut = false
     var onSelect: ((WindowID) -> Void)?
     var onDrag: ((DragPhase) -> Void)?
 
@@ -75,8 +79,7 @@ final class StackTabBar: NSPanel {
         }
 
         self.window = window
-        setFrame(Displays.toCocoa(frame), display: true)
-        if !isVisible { orderFrontRegardless() }
+        appear(at: Displays.toCocoa(frame))
         order(.above, relativeTo: Int(window))
     }
 }
@@ -215,7 +218,7 @@ final class StackTabsController {
             bar.update(tabs: entry.tabs, active: entry.stack.active, color: color, frame: entry.frame, above: entry.stack.active)
         }
         for (id, bar) in bars where !seen.contains(id) {
-            bar.orderOut(nil)
+            bar.disappear()
             bars.removeValue(forKey: id)
         }
     }
@@ -228,7 +231,7 @@ final class StackTabsController {
     }
 
     func removeAll() {
-        for bar in bars.values { bar.orderOut(nil) }
+        for bar in bars.values { bar.disappear() }
         bars.removeAll()
     }
 }

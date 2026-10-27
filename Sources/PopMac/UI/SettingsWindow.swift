@@ -453,6 +453,14 @@ private struct AppearanceSettings: View {
             } footer: {
                 Footnote("The outline is clear glass. Before macOS 26, it uses the accent color.")
             }
+
+            Section {
+                Toggle("Animate windows and highlights", isOn: model.binding(\.animations))
+            } header: {
+                Text("Motion")
+            } footer: {
+                Footnote("Windows glide into their tiles. Animations stay off while Reduce Motion is on in Accessibility settings.")
+            }
         }
         .formStyle(.grouped)
     }

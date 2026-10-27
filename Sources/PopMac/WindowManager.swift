@@ -31,6 +31,7 @@ final class WindowManager {
 
     let overlay = OverlayWindow()
     let hint = HintWindow()
+    let animator = WindowAnimator()
     private var hintScheduled = false
     private let tabs = StackTabsController()
     private var stacksScheduled = false
@@ -227,6 +228,7 @@ final class WindowManager {
     }
 
     private func applyStyles() {
+        Motion.enabled = settings.animations
         overlay.style(color: accentColor, radius: settings.overlayBorderRadius)
         hint.style(color: accentColor, width: settings.activeHintWidth, radius: settings.overlayBorderRadius)
     }
@@ -285,9 +287,13 @@ final class WindowManager {
     }
 
     /// Finds the tracked window for an element, even after it was destroyed.
+    ///
+    /// Comparing elements needs no call to the app, which may be busy, so it comes first.
+    /// It matters during animations, which send many move events.
     private func lookup(_ element: AXUIElement, pid: pid_t) -> WindowID? {
+        if let window = windows.values.first(where: { $0.pid == pid && CFEqual($0.element, element) }) { return window.id }
         if let id = AX.windowID(element), windows[id] != nil { return id }
-        return windows.values.first { $0.pid == pid && CFEqual($0.element, element) }?.id
+        return nil
     }
 
     func focusedWindow() -> ManagedWindow? {
@@ -332,6 +338,8 @@ final class WindowManager {
 
         case let .windowMoved(element), let .windowResized(element):
             let moved = lookup(element, pid: pid)
+            // Pop Mac's own animation moves the window. The outline glides along by itself.
+            if let moved, animator.target(of: moved) != nil { break }
             if moved != nil, moved == prevFocused[1] {
                 // The outline would trail a window that the mouse moves. It returns at mouse-up.
                 if NSEvent.pressedMouseButtons & 1 != 0 || superDrag?.window != nil { hint.hide() } else { scheduleHint() }
@@ -471,6 +479,7 @@ final class WindowManager {
 
         let pid = windows[id]?.pid
         windows.removeValue(forKey: id)
+        animator.cancel(id)
         if let autoTiler, autoTiler.isAttached(id), let pid, let frame = lastApplied[id] {
             // Wait briefly: if this was a native tab, the next tab takes its tile.
             closingTabs[id] = (pid, frame)
@@ -787,7 +796,7 @@ final class WindowManager {
                 prevRect[id] = rect
                 continue
             }
-            window.setFrame(rect)
+            move(window, to: rect)
         }
         scheduleHint()
     }
@@ -902,7 +911,8 @@ final class WindowManager {
               let id = prevFocused[1], let window = windows[id],
               NSWorkspace.shared.frontmostApplication.flatMap(Processes.pid(of:)) == window.pid,
               // The window server knows the frame without asking the app, which may be busy.
-              var frame = Displays.onScreenFrame(of: id), !window.isFullscreen
+              // A window that glides to a new frame has its outline glide there too.
+              var frame = Displays.onScreenFrame(of: id).map({ animator.target(of: id) ?? $0 }), !window.isFullscreen
         else {
             hint.hide()
             return
@@ -1071,7 +1081,7 @@ final class WindowManager {
         guard let frame = window.frame, let display = Displays.display(for: frame, in: displays) else { return }
         let cell = Grid.cell(monitor: display.workArea, columnSize: settings.columnSize, rowSize: settings.rowSize)
         let snapped = Grid.change(frame, cell: cell, dx: 0, dy: 0, dw: 0, dh: 0, monitors: displays.map(\.workArea))
-        window.setFrame(snapped)
+        move(window, to: snapped)
     }
 
     // MARK: - Debugging
@@ -1137,14 +1147,32 @@ extension WindowManager: @preconcurrency TilingEnvironment {
                 target.width = maxWidth
             }
             lastApplied[id] = target
-            if let frame = window.frame, frame.approximatelyEquals(target, tolerance: 1) { continue }
+            if animator.target(of: id) == target { continue }
+            if animator.target(of: id) == nil, let frame = window.frame, frame.approximatelyEquals(target, tolerance: 1) { continue }
             lastSet[id] = Date()
-            window.setFrame(target)
-            pendingVerify[id] = (target, false)
+            move(window, to: target) { [weak self] in
+                // The window's own move events trail the animation.
+                self?.lastSet[id] = Date()
+                self?.pendingVerify[id] = (target, false)
+                self?.scheduleVerify()
+            }
         }
         if tileMode != nil { refreshTileOverlay() }
         scheduleHint()
         scheduleVerify()
+    }
+
+    /// Moves a window to `rect`. A window on screen glides there while animations are on.
+    ///
+    /// `done` runs when the window arrives, but not if another move replaces this one.
+    func move(_ window: ManagedWindow, to rect: Rect, done: @escaping @MainActor () -> Void = {}) {
+        if Motion.isOn, let from = Displays.onScreenFrame(of: window.id) {
+            animator.animate(window, from: from, to: rect, done: done)
+        } else {
+            animator.cancel(window.id)
+            window.setFrame(rect)
+            done()
+        }
     }
 
     /// Checks moved windows again after a moment, and fixes the ones that missed.

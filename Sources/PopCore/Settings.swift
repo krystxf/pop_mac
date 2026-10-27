@@ -264,6 +264,8 @@ public struct Settings: Codable, Equatable {
     /// Draws an outline around the focused window.
     public var activeHint = true
     public var activeHintWidth: Double = 3
+    /// Windows glide to their new frames, and the highlights glide and fade.
+    public var animations = true
     public var gapInner: Double = 8
     public var gapOuter: Double = 8
     public var smartGaps = false
@@ -295,6 +297,7 @@ public struct Settings: Codable, Equatable {
         overlayBorderRadius = try c.decodeIfPresent(Double.self, forKey: .overlayBorderRadius) ?? d.overlayBorderRadius
         activeHint = try c.decodeIfPresent(Bool.self, forKey: .activeHint) ?? d.activeHint
         activeHintWidth = try c.decodeIfPresent(Double.self, forKey: .activeHintWidth) ?? d.activeHintWidth
+        animations = try c.decodeIfPresent(Bool.self, forKey: .animations) ?? d.animations
         gapInner = try c.decodeIfPresent(Double.self, forKey: .gapInner) ?? d.gapInner
         gapOuter = try c.decodeIfPresent(Double.self, forKey: .gapOuter) ?? d.gapOuter
         smartGaps = try c.decodeIfPresent(Bool.self, forKey: .smartGaps) ?? d.smartGaps

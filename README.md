@@ -143,6 +143,7 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   "overlayBorderRadius": 10,
   "activeHint": true,
   "activeHintWidth": 3,
+  "animations": true,
   "mouseCursorFollowsActiveWindow": true,
   "mouseCursorFocusLocation": "center",
   "snapToGrid": false,
@@ -185,6 +186,8 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
 - `superDragMovesWindows` lets you hold the Super modifiers and drag anywhere in a window to move it.
   Pop Mac consumes that click, so the app under the cursor does not see it.
 - `activeHint` draws an outline around the focused window. `activeHintWidth` is its width in points.
+- `animations` makes windows glide into their tiles, and the outline, drop previews, and tab bars glide and fade.
+  Animations stay off while Reduce Motion is on in System Settings > Accessibility > Display.
 - `mouseCursorFocusLocation` is one of `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
 
 ## Limitations
@@ -196,7 +199,7 @@ macOS restricts what a window manager can do. These parts differ from Pop Shell:
 - **Native tabs:** each macOS tab is a window. The selected tab takes the tile of the tab it replaced.
 - **Snap back:** a tiled window that something other than a mouse drag moves returns to its tile.
 - **Minimum sizes:** macOS does not tell other apps a window's minimum size, so Pop Mac learns it the first time a window refuses a smaller tile. Its neighbors then make room. If the minimums on a display add up to more than it has, windows still overlap.
-- **Animations:** windows move without animation.
+- **Animations:** Pop Mac moves another app's window one step at a time through Accessibility. A slow app takes fewer steps, so its windows glide less smoothly, and some apps redraw their content a moment after each resize.
 - Pop Mac learns about windows on other Spaces when you first visit those Spaces.
 
 ## Development

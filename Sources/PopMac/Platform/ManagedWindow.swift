@@ -41,19 +41,12 @@ final class ManagedWindow {
         return error != .invalidUIElement && !app.isTerminated
     }
 
-    /// Moves and resizes the window.
-    ///
-    /// The size is set twice, because macOS clamps a window to its current display
-    /// while it moves.
+    /// Moves and resizes the window at once.
     func setFrame(_ rect: Rect) {
         let enhanced: Bool = AX.get(appElement, "AXEnhancedUserInterface") ?? false
         if enhanced { AX.set(appElement, "AXEnhancedUserInterface", kCFBooleanFalse) }
         defer { if enhanced { AX.set(appElement, "AXEnhancedUserInterface", kCFBooleanTrue) } }
-
-        let size = CGSize(width: rect.width, height: rect.height)
-        AX.setSize(element, size)
-        AX.setPosition(element, CGPoint(x: rect.x, y: rect.y))
-        AX.setSize(element, size)
+        AX.setFrame(element, rect)
     }
 
     /// Moves the window without resizing it.

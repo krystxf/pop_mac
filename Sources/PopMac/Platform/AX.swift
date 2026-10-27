@@ -75,6 +75,17 @@ enum AX {
         }
     }
 
+    /// Moves and resizes a window.
+    ///
+    /// The size is set twice, because macOS clamps a window to its current display
+    /// while it moves.
+    static func setFrame(_ element: AXUIElement, _ rect: Rect) {
+        let size = CGSize(width: rect.width, height: rect.height)
+        setSize(element, size)
+        setPosition(element, CGPoint(x: rect.x, y: rect.y))
+        setSize(element, size)
+    }
+
     static func frame(_ element: AXUIElement) -> Rect? {
         guard let p = position(element), let s = size(element) else { return nil }
         return Rect(Double(p.x), Double(p.y), Double(s.width), Double(s.height))
