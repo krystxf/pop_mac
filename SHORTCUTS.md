@@ -13,6 +13,7 @@ Both are configurable in **Settings > Shortcuts**, which also lists the current 
 | Toggle auto-tiling | ⌃⌥ Y |
 | Toggle stacking | ⌃⌥ S |
 | Next / previous tab of a stack | ⌃⌥ ⇥ / ⌃⌥⇧ ⇥ |
+| Move window left / right (swaps it with a neighbor in the same split) | ⌃⌥⇧ ← / → or ⌃⌥⇧ H / L |
 | Move window to display | ⌃⌥⇧⌘ ← ↓ ↑ → |
 | Move window up / down, or to the previous / next Space when nothing is there | ⌃⌥⇧ ↑ / ⌃⌥⇧ ↓ |
 | Toggle maximize | ⌃⌥ M |

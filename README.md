@@ -125,7 +125,7 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   "primaryModifiers": ["command"],
   "keybindings": {
     "focus-left": ["<Super>Left", "<Super>h"],
-    "tile-move-left-global": ["<Super><Shift>Left"]
+    "toggle-maximize": ["<Super>f"]
   },
   "floatRules": [
     { "app": "^com\\.apple\\.calculator$" },

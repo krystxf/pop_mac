@@ -201,10 +201,11 @@ public enum Action: String, CaseIterable, Codable {
         .toggleFloating: ["<Super>g"],
         .toggleTiling: ["<Super>y"],
         .toggleStackingGlobal: ["<Super>s"],
-        .tileMoveLeftGlobal: [],
+        // Up and down with Super and Shift are workspaceUp and workspaceDown, which also move windows.
+        .tileMoveLeftGlobal: ["<Super><Shift>Left", "<Super><Shift>h"],
         .tileMoveDownGlobal: [],
         .tileMoveUpGlobal: [],
-        .tileMoveRightGlobal: [],
+        .tileMoveRightGlobal: ["<Super><Shift>Right", "<Super><Shift>l"],
         .monitorLeft: ["<Super><Shift><Primary>Left", "<Super><Shift><Primary>h"],
         .monitorRight: ["<Super><Shift><Primary>Right", "<Super><Shift><Primary>l"],
         .monitorUp: ["<Super><Shift><Primary>Up", "<Super><Shift><Primary>k"],
