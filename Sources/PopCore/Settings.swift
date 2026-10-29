@@ -272,8 +272,6 @@ public struct Settings: Codable, Equatable {
     public var gapOuter: Double = 8
     public var smartGaps = false
     public var snapToGrid = false
-    /// Holding the Super modifiers and dragging anywhere in a window moves it.
-    public var superDragMovesWindows = true
     public var mouseCursorFollowsActiveWindow = true
     public var mouseCursorFocusLocation: FocusLocation = .center
     public var columnSize: Double = 64
@@ -305,7 +303,6 @@ public struct Settings: Codable, Equatable {
         gapOuter = try c.decodeIfPresent(Double.self, forKey: .gapOuter) ?? d.gapOuter
         smartGaps = try c.decodeIfPresent(Bool.self, forKey: .smartGaps) ?? d.smartGaps
         snapToGrid = try c.decodeIfPresent(Bool.self, forKey: .snapToGrid) ?? d.snapToGrid
-        superDragMovesWindows = try c.decodeIfPresent(Bool.self, forKey: .superDragMovesWindows) ?? d.superDragMovesWindows
         mouseCursorFollowsActiveWindow = try c.decodeIfPresent(Bool.self, forKey: .mouseCursorFollowsActiveWindow) ?? d.mouseCursorFollowsActiveWindow
         mouseCursorFocusLocation = try c.decodeIfPresent(FocusLocation.self, forKey: .mouseCursorFocusLocation) ?? d.mouseCursorFocusLocation
         columnSize = try c.decodeIfPresent(Double.self, forKey: .columnSize) ?? d.columnSize

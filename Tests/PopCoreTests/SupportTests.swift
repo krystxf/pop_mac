@@ -84,7 +84,6 @@ struct SupportTests {
         #expect(settings.bindings(for: .focusRight) == ["<Super>Right", "<Super>l"])
         #expect(settings.activeHint)
         #expect(settings.activeHintWidth == 3)
-        #expect(settings.superDragMovesWindows)
     }
 
     @Test func settingsDecodeActiveHint() throws {

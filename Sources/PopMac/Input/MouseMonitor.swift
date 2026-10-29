@@ -59,10 +59,15 @@ final class MouseMonitor {
             guard moved, !resized else { continue }
 
             dragged = id
-            previewTimer = WindowManager.dragPreviewTimer { [weak self] in
-                guard let self, let dragged else { return }
-                manager?.dragPreview(dragged)
+            // Show where the window will land 30 times a second, after 200 ms like Pop Shell.
+            let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let dragged = self.dragged else { return }
+                    self.manager?.dragPreview(dragged)
+                }
             }
+            timer.fireDate = Date().addingTimeInterval(0.2)
+            previewTimer = timer
             return
         }
     }

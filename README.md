@@ -14,7 +14,6 @@ It ports Pop Shell's tiling tree, keyboard workflow, tile mode, stacking, and la
 | Stacking (Super + S) with a tab bar | Same. Click a tab, or press Super + Tab and Super + Shift + Tab, to switch tabs. |
 | Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows, or hold Super at the drop to stack them. The preview says "Switch windows" or "Stack window". |
 | Resize a tiled window with the mouse | Same. The neighbors follow. |
-| Super + drag moves a window | Same. Hold Super (⌃⌥ by default) and drag anywhere in a window. |
 | Toggle floating (Super + G), floating window exceptions | Same. Every standard window tiles, unless you float it with Super + G or a rule in `floatRules` matches it. |
 | Toggle auto-tiling (Super + Y) | Same. Windows stay where they are when tiling turns off. |
 | Tiling survives a restart of the shell | Pop Mac saves the layout in `~/.config/pop-mac/layout.json` and rebuilds it, with its stacks, when it starts or when you turn tiling on again. Windows of apps that restarted meanwhile tile as new windows. |
@@ -119,7 +118,6 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   "mouseCursorFollowsActiveWindow": true,
   "mouseCursorFocusLocation": "center",
   "snapToGrid": false,
-  "superDragMovesWindows": true,
   "columnSize": 64,
   "rowSize": 64,
   "maxWindowWidth": 0,
@@ -155,8 +153,6 @@ If the file has an error, the menu bar icon shows a warning, and Pop Mac keeps t
   - Rules follow window titles: a window floats when its title starts to match a rule, and tiles again when it stops matching.
 - The selected stack tab uses the system accent color. Before macOS 26, so do tile mode, drop previews, and the active hint.
 - `overlayBorderRadius` rounds the highlights of windows whose own corner radius Pop Mac cannot read.
-- `superDragMovesWindows` lets you hold the Super modifiers and drag anywhere in a window to move it.
-  Pop Mac consumes that click, so the app under the cursor does not see it.
 - `activeHint` draws an outline around the focused window. `activeHintWidth` is its width in points.
 - `animations` makes windows glide into their tiles, and the outline, drop previews, and tab bars glide and fade.
   Animations stay off while Reduce Motion is on in System Settings > Accessibility > Display.

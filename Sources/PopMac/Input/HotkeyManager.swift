@@ -93,7 +93,7 @@ final class HotkeyManager {
 }
 
 extension CGEventFlags {
-    /// The modifier keys that key bindings and Super + drag look at.
+    /// The modifier keys that key bindings look at.
     static let modifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
 
     init(modifiers: some Sequence<MacModifier>) {

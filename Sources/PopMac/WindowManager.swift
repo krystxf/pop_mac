@@ -47,7 +47,6 @@ final class WindowManager {
     let hotkeys = HotkeyManager()
     private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
-    private var superDrag: SuperDrag?
     private var signalSource: DispatchSourceSignal?
     var tileMode: TileMode?
     /// Windows to check after a move: the frame they should have, and whether it was set twice.
@@ -115,11 +114,6 @@ final class WindowManager {
         let mouse = MouseMonitor(manager: self)
         mouse.start()
         self.mouse = mouse
-
-        let superDrag = SuperDrag(manager: self)
-        superDrag.configure(settings)
-        superDrag.start()
-        self.superDrag = superDrag
 
         departureTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -194,7 +188,6 @@ final class WindowManager {
 
     private func settingsChanged(from old: Settings) {
         applyStyles()
-        superDrag?.configure(settings)
         scheduleStacksRefresh()
         if settings.superModifiers != old.superModifiers || settings.primaryModifiers != old.primaryModifiers
             || settings.keybindings != old.keybindings
@@ -356,11 +349,11 @@ final class WindowManager {
             if let moved, animator.target(of: moved) != nil { break }
             if moved != nil, moved == prevFocused[1] {
                 // The outline would trail a window that the mouse moves. It returns at mouse-up.
-                if NSEvent.pressedMouseButtons & 1 != 0 || superDrag?.window != nil { hint.hide() } else { scheduleHint() }
+                if NSEvent.pressedMouseButtons & 1 != 0 { hint.hide() } else { scheduleHint() }
             }
             if let id = moved,
                // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
-               autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0, superDrag?.window != id,
+               autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
                Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5
             {
                 scheduleSnapBack(id)
@@ -1095,15 +1088,6 @@ final class WindowManager {
 
     // MARK: - Mouse
 
-    /// Calls `update` 30 times a second, starting after 200 ms like Pop Shell's drop preview.
-    static func dragPreviewTimer(_ update: @escaping @MainActor () -> Void) -> Timer {
-        let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in
-            MainActor.assumeIsolated { update() }
-        }
-        timer.fireDate = Date().addingTimeInterval(0.2)
-        return timer
-    }
-
     /// Shows where a dragged window would land.
     func dragPreview(_ id: WindowID) {
         guard let autoTiler, autoTiler.isAttached(id) else {
@@ -1296,7 +1280,7 @@ extension WindowManager: @preconcurrency TilingEnvironment {
     }
 
     /// Stops a gliding window where it is. Windows that wait for it go to their tiles at once.
-    func stopAnimation(_ id: WindowID) {
+    private func stopAnimation(_ id: WindowID) {
         animator.cancel(id)
         placeFollowers(of: id)
     }
