@@ -266,6 +266,8 @@ public struct Settings: Codable, Equatable {
     public var activeHintWidth: Double = 3
     /// Windows glide to their new frames, and the highlights glide and fade.
     public var animations = true
+    /// Darkens the wallpaper of a display that shows only one window.
+    public var dimWallpaper = true
     public var gapInner: Double = 8
     public var gapOuter: Double = 8
     public var smartGaps = false
@@ -298,6 +300,7 @@ public struct Settings: Codable, Equatable {
         activeHint = try c.decodeIfPresent(Bool.self, forKey: .activeHint) ?? d.activeHint
         activeHintWidth = try c.decodeIfPresent(Double.self, forKey: .activeHintWidth) ?? d.activeHintWidth
         animations = try c.decodeIfPresent(Bool.self, forKey: .animations) ?? d.animations
+        dimWallpaper = try c.decodeIfPresent(Bool.self, forKey: .dimWallpaper) ?? d.dimWallpaper
         gapInner = try c.decodeIfPresent(Double.self, forKey: .gapInner) ?? d.gapInner
         gapOuter = try c.decodeIfPresent(Double.self, forKey: .gapOuter) ?? d.gapOuter
         smartGaps = try c.decodeIfPresent(Bool.self, forKey: .smartGaps) ?? d.smartGaps

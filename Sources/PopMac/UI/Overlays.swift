@@ -245,3 +245,18 @@ extension NSGlassEffectView {
         setValue(variant, forKey: "_variant")
     }
 }
+
+/// A dark layer over the wallpaper of one display, below every window and the desktop icons.
+final class WallpaperDimWindow: ShapeWindow {
+    init() {
+        super.init(level: NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1))
+        // Mission Control and Space switches show the desktop, so the layer stays on every Space.
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        shape.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
+    }
+
+    /// Fades the layer in over a display's whole frame.
+    func show(on display: Display) {
+        appear(at: Displays.toCocoa(display.frame))
+    }
+}

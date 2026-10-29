@@ -411,6 +411,14 @@ private struct AppearanceSettings: View {
             }
 
             Section {
+                Toggle("Dim the wallpaper behind a single window", isOn: model.binding(\.dimWallpaper))
+            } header: {
+                Text("Wallpaper")
+            } footer: {
+                Footnote("Darkens the wallpaper of a display that shows only one window.")
+            }
+
+            Section {
                 Toggle("Animate windows and highlights", isOn: model.binding(\.animations))
             } header: {
                 Text("Motion")

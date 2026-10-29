@@ -31,6 +31,8 @@ final class WindowManager {
 
     let overlay = OverlayWindow()
     let hint = HintWindow()
+    /// The dark layers over the wallpaper, by display.
+    private var wallpaperDims: [MonitorID: WallpaperDimWindow] = [:]
     let animator = WindowAnimator()
     private var hintScheduled = false
     /// When the outline started to wait for its window's real frame.
@@ -120,7 +122,11 @@ final class WindowManager {
         self.superDrag = superDrag
 
         departureTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkDepartedWindows() }
+            MainActor.assumeIsolated {
+                self?.checkDepartedWindows()
+                // Some changes have no event, such as a window that another app moved to a display.
+                self?.updateWallpaperDims()
+            }
         }
         Log.info("started with \(windows.count) windows")
     }
@@ -928,6 +934,7 @@ final class WindowManager {
 
     // MARK: - Active hint
 
+    /// Updates the outline and the wallpaper dims soon, once for many calls.
     func scheduleHint() {
         guard !hintScheduled else { return }
         hintScheduled = true
@@ -935,6 +942,7 @@ final class WindowManager {
             MainActor.assumeIsolated {
                 self?.hintScheduled = false
                 self?.updateHint()
+                self?.updateWallpaperDims()
             }
         }
     }
@@ -970,6 +978,29 @@ final class WindowManager {
         }
         hint.show(around: frame, of: id)
         tabs.reorder(above: id)
+    }
+
+    /// Darkens the wallpaper of each display that shows exactly one window.
+    ///
+    /// The tabs of a stack count as one window, because only the selected tab is in view.
+    private func updateWallpaperDims() {
+        var counts: [MonitorID: Int] = [:]
+        if settings.dimWallpaper {
+            for (id, frame) in Displays.onScreenFrames() where windows[id] != nil {
+                if let stack = autoTiler?.findStack(id)?.stack, stack.active != id { continue }
+                // Hidden stack tabs and windows off screen do not count.
+                guard let display = displays.first(where: { $0.frame.contains(frame.center) }) else { continue }
+                counts[display.id, default: 0] += 1
+            }
+        }
+        for display in displays where counts[display.id] == 1 {
+            let dim = wallpaperDims[display.id] ?? WallpaperDimWindow()
+            wallpaperDims[display.id] = dim
+            dim.show(on: display)
+        }
+        for (id, dim) in wallpaperDims where counts[id] != 1 {
+            dim.hide()
+        }
     }
 
     /// Updates the outline again soon, for up to 3 seconds after it started to wait.

@@ -94,6 +94,12 @@ struct SupportTests {
         #expect(settings.activeHintWidth == 5)
     }
 
+    @Test func settingsDecodeDimWallpaper() throws {
+        #expect(Settings().dimWallpaper)
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(#"{"dimWallpaper": false}"#.utf8))
+        #expect(!settings.dimWallpaper)
+    }
+
     @Test func gridChangeSnapsToCells() {
         let monitor = Rect(0, 0, 1280, 768)
         let cell = Grid.cell(monitor: monitor, columnSize: 64, rowSize: 64)
