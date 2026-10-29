@@ -6,9 +6,9 @@ and you move focus and windows with the keyboard ([SHORTCUTS.md](SHORTCUTS.md)).
 [USAGE.md](USAGE.md) describes the features and limits, [CONFIGURATION.md](CONFIGURATION.md) the settings,
 and [DEVELOPMENT.md](DEVELOPMENT.md) the build. Like Pop Shell, Pop Mac is licensed under the GNU GPL v3.
 
-[![Pop Mac demo: tiling, moving focus with the keyboard, and stacking windows](docs/pop-mac-demo.gif)](docs/pop-mac-promo.mp4)
+[![Pop Mac demo: tiling, swapping windows by dragging, and stacking them](docs/pop-mac-demo.gif)](docs/pop-mac-promo.mp4)
 
-The demo shows tiling, moving focus with the keyboard, and stacking windows.
+The demo shows tiling. Dragging a window onto another one swaps them, and holding Super at the drop stacks them.
 Click it to open the [full-quality video](docs/pop-mac-promo.mp4).
 
 ## Install
