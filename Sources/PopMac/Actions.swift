@@ -67,8 +67,8 @@ extension WindowManager {
         case .monitorRight: moveToMonitor(.right)
         case .monitorUp: moveToMonitor(.up)
         case .monitorDown: moveToMonitor(.down)
-        case .workspaceUp: moveToSpace(next: false)
-        case .workspaceDown: moveToSpace(next: true)
+        case .workspaceUp: moveVertically(.up)
+        case .workspaceDown: moveVertically(.down)
         case .toggleMaximize: toggleMaximize()
         case .closeWindow: focusedWindow()?.close()
         case .minimizeWindow: focusedWindow()?.minimize()
@@ -163,6 +163,21 @@ extension WindowManager {
     func moveFocused(_ direction: Direction) {
         guard let focused = focusedWindow() else { return }
         moveTiled(focused.id, direction)
+    }
+
+    /// Moves the focused window up or down in the layout, like Pop Shell's Super + Shift + Up and Down.
+    ///
+    /// With no window or display in that direction, or for a floating window,
+    /// the window moves to the previous or next Space instead.
+    func moveVertically(_ direction: Direction) {
+        guard let focused = focusedWindow() else { return }
+        if let autoTiler, autoTiler.isAttached(focused.id),
+           autoTiler.findStack(focused.id) != nil || moveTarget(focused.id, direction) != nil
+        {
+            moveTiled(focused.id, direction)
+        } else {
+            moveToSpace(next: direction == .down)
+        }
     }
 
     /// Moves a tiled window in a direction: within or out of its stack, onto a window, or onto a display.

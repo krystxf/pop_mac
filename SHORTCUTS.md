@@ -14,7 +14,7 @@ Both are configurable in **Settings > Shortcuts**, which also lists the current 
 | Toggle stacking | ⌃⌥ S |
 | Next / previous tab of a stack | ⌃⌥ ⇥ / ⌃⌥⇧ ⇥ |
 | Move window to display | ⌃⌥⇧⌘ ← ↓ ↑ → |
-| Move window to previous / next Space | ⌃⌥⇧ ↑ / ⌃⌥⇧ ↓ |
+| Move window up / down, or to the previous / next Space when nothing is there | ⌃⌥⇧ ↑ / ⌃⌥⇧ ↓ |
 | Toggle maximize | ⌃⌥ M |
 | Close window | ⌃⌥ Q |
 | Minimize window | ⌃⌥ , |
