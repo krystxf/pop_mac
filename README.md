@@ -7,7 +7,6 @@ and you move focus and windows with the keyboard. Like Pop Shell, Pop Mac is lic
 [![Pop Mac demo: tiling, swapping windows by dragging, and stacking them](docs/pop-mac-drag-demo.gif)](docs/pop-mac-drag-demo.mp4)
 
 The demo shows tiling. Dragging a window onto another one swaps them, and holding Super at the drop stacks them.
-Click it to open the [full-quality video](docs/pop-mac-drag-demo.mp4).
 
 ## Contents
 
