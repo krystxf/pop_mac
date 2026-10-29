@@ -324,12 +324,6 @@ private struct GeneralSettings: View {
             }
 
             Section {
-                Toggle("Snap floating windows to the grid", isOn: model.binding(\.snapToGrid))
-            } footer: {
-                Footnote("When tiling is off, windows you drop snap to a grid of \(Int(model.settings.columnSize)) × \(Int(model.settings.rowSize)) points.")
-            }
-
-            Section {
                 LabeledContent("Config file") {
                     Button("Open") { model.openConfigFile() }
                         .glassButton()
