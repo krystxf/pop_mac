@@ -127,7 +127,6 @@ public enum Action: String, CaseIterable, Codable {
     case tileSwapDown = "tile-swap-down"
     case tileSwapUp = "tile-swap-up"
     case tileSwapRight = "tile-swap-right"
-    case tileAccept = "tile-accept"
     case tileReject = "tile-reject"
 
     /// True for bindings that only work inside tile mode.
@@ -137,7 +136,7 @@ public enum Action: String, CaseIterable, Codable {
              .tileMoveLeft, .tileMoveDown, .tileMoveUp, .tileMoveRight,
              .tileResizeLeft, .tileResizeDown, .tileResizeUp, .tileResizeRight,
              .tileSwapLeft, .tileSwapDown, .tileSwapUp, .tileSwapRight,
-             .tileAccept, .tileReject:
+             .tileReject:
             true
         default:
             false
@@ -185,7 +184,6 @@ public enum Action: String, CaseIterable, Codable {
         case .tileSwapDown: "Swap with window below"
         case .tileSwapUp: "Swap with window above"
         case .tileSwapRight: "Swap with window to the right"
-        case .tileAccept: "Apply changes and exit tile mode"
         case .tileReject: "Cancel changes and exit tile mode"
         }
     }
@@ -231,7 +229,6 @@ public enum Action: String, CaseIterable, Codable {
         .tileSwapDown: ["<Primary>Down", "<Primary>j"],
         .tileSwapUp: ["<Primary>Up", "<Primary>k"],
         .tileSwapRight: ["<Primary>Right", "<Primary>l"],
-        .tileAccept: ["Return", "KP_Enter"],
         .tileReject: ["Escape"],
     ]
 }

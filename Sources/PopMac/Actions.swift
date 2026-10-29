@@ -86,7 +86,6 @@ extension WindowManager {
         case .tileSwapDown: tileModeSwap(.down)
         case .tileSwapUp: tileModeSwap(.up)
         case .tileSwapRight: tileModeSwap(.right)
-        case .tileAccept: acceptTileMode()
         case .tileReject: exitTileMode()
         }
     }

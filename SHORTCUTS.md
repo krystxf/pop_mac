@@ -30,5 +30,5 @@ Press ⌃⌥ ↩ to enter tile mode. Then:
 | Select a window to swap with | ⌘ + arrows |
 | Toggle orientation | O |
 | Toggle stacking | S |
-| Apply and exit | ↩ |
+| Apply and exit | ⌃⌥ ↩ |
 | Exit | ⎋ |
