@@ -377,12 +377,6 @@ private struct AppearanceSettings: View {
 
     var body: some View {
         Form {
-            Section("Preview") {
-                OverlayPreview(radius: model.settings.overlayBorderRadius)
-                    .frame(height: 170)
-                    .listRowInsets(EdgeInsets())
-            }
-
             Section {
                 Toggle("Outline the focused window", isOn: model.binding(\.activeHint))
             } header: {
@@ -408,53 +402,6 @@ private struct AppearanceSettings: View {
             }
         }
         .formStyle(.grouped)
-    }
-}
-
-/// Two windows on a desktop, with the highlight over the right one.
-private struct OverlayPreview: View {
-    let radius: Double
-
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(nsColor: .systemIndigo).opacity(0.55), Color(nsColor: .systemTeal).opacity(0.45)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            HStack(spacing: 10) {
-                window
-                window.overlay { highlight }
-            }
-            .padding(18)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(10)
-    }
-
-    /// Clear glass on macOS 26 and later, the accent color before, like the real highlight.
-    @ViewBuilder
-    private var highlight: some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        if #available(macOS 26, *) {
-            Color.clear.glassEffect(.clear, in: shape)
-        } else {
-            shape.fill(Color.accentColor.opacity(0.25)).overlay(shape.stroke(Color.accentColor, lineWidth: 3))
-        }
-    }
-
-    private var window: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                ForEach([Color.red, .yellow, .green], id: \.self) { Circle().fill($0.opacity(0.8)).frame(width: 7, height: 7) }
-                Spacer()
-            }
-            .padding(7)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glassCard(cornerRadius: 10)
     }
 }
 
