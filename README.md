@@ -6,6 +6,8 @@ and you move focus and windows with the keyboard ([SHORTCUTS.md](SHORTCUTS.md)).
 [USAGE.md](USAGE.md) describes the features and limits, [CONFIGURATION.md](CONFIGURATION.md) the settings,
 and [DEVELOPMENT.md](DEVELOPMENT.md) the build. Like Pop Shell, Pop Mac is licensed under the GNU GPL v3.
 
+[Watch the demo](docs/pop-mac-promo.mp4): tiling, moving focus with the keyboard, and stacking windows.
+
 ## Install
 
 Pop Mac needs macOS 13 or later. Homebrew builds it from source, so it also needs Xcode 16 or later.
