@@ -36,7 +36,7 @@ The menu bar item turns tiling on or off, floats the focused window, opens the l
 | --- | --- |
 | General | Tile automatically, launch at login, move the cursor with keyboard focus, snap floating windows to the grid |
 | Layout | Gaps between windows and at the screen edges, smart gaps, maximum window width |
-| Appearance | A preview of the highlights, the outline around the focused window, and a darker wallpaper behind a single window |
+| Appearance | A preview of the highlights, the outline around the focused window, and how much to darken the wallpaper behind a single window |
 | Shortcuts | The keys that Super and Primary stand for, and every shortcut |
 | Floating | Rules for windows that float instead of tile |
 

@@ -411,11 +411,11 @@ private struct AppearanceSettings: View {
             }
 
             Section {
-                Toggle("Dim the wallpaper behind a single window", isOn: model.binding(\.dimWallpaper))
+                ValueSlider(title: "Darken the wallpaper", value: model.binding(\.wallpaperDim), range: 0 ... 100, step: 1, unit: "%")
             } header: {
                 Text("Wallpaper")
             } footer: {
-                Footnote("Darkens the wallpaper of a display that shows only one window.")
+                Footnote("Darkens the wallpaper of a display that shows only one window. At 0 %, the wallpaper stays as it is.")
             }
 
             Section {

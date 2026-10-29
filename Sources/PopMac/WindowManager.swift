@@ -985,7 +985,7 @@ final class WindowManager {
     /// The tabs of a stack count as one window, because only the selected tab is in view.
     private func updateWallpaperDims() {
         var counts: [MonitorID: Int] = [:]
-        if settings.dimWallpaper {
+        if settings.wallpaperDim > 0 {
             for (id, frame) in Displays.onScreenFrames() where windows[id] != nil {
                 if let stack = autoTiler?.findStack(id)?.stack, stack.active != id { continue }
                 // Hidden stack tabs and windows off screen do not count.
@@ -996,7 +996,7 @@ final class WindowManager {
         for display in displays where counts[display.id] == 1 {
             let dim = wallpaperDims[display.id] ?? WallpaperDimWindow()
             wallpaperDims[display.id] = dim
-            dim.show(on: display)
+            dim.show(on: display, darkness: settings.wallpaperDim / 100)
         }
         for (id, dim) in wallpaperDims where counts[id] != 1 {
             dim.hide()

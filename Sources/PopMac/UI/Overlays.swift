@@ -252,11 +252,11 @@ final class WallpaperDimWindow: ShapeWindow {
         super.init(level: NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1))
         // Mission Control and Space switches show the desktop, so the layer stays on every Space.
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        shape.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
     }
 
-    /// Fades the layer in over a display's whole frame.
-    func show(on display: Display) {
+    /// Fades the layer in over a display's whole frame. `darkness` goes from 0 to 1.
+    func show(on display: Display, darkness: Double) {
+        shape.backgroundColor = NSColor.black.withAlphaComponent(darkness).cgColor
         appear(at: Displays.toCocoa(display.frame))
     }
 }
