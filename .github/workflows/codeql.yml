@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+# The default shell has no pipefail, so a failing command in a pipe would go unnoticed.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})
