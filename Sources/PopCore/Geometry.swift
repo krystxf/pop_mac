@@ -39,7 +39,7 @@ public enum Side {
 
 /// A rectangle in global screen coordinates with a top-left origin
 /// (the coordinate space used by the Accessibility API).
-public struct Rect: Equatable, Hashable, Codable, CustomStringConvertible {
+public struct Rect: Sendable, Equatable, Hashable, Codable, CustomStringConvertible {
     public var x: Double
     public var y: Double
     public var width: Double

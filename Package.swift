@@ -1,4 +1,4 @@
-// swift-tools-version:6.0
+// swift-tools-version:6.4
 import PackageDescription
 
 let package = Package(
@@ -24,5 +24,5 @@ let package = Package(
         .executableTarget(name: "PopTestApp", path: "Tests/PopTestApp"),
         .testTarget(name: "PopE2ETests", dependencies: ["PopCore"]),
     ],
-    swiftLanguageModes: [.v5]
+    swiftLanguageModes: [.v6]
 )

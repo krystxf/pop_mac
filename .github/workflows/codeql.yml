@@ -47,6 +47,11 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
+      - if: matrix.language == 'swift'
+        uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3
+        with:
+          swift-version: "6.4.2"
+
       - name: Build
         if: matrix.language == 'swift'
         run: swift build

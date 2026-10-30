@@ -1258,7 +1258,7 @@ extension WindowManager: @preconcurrency TilingEnvironment {
                 followers[active, default: []].append((id, target))
                 continue
             }
-            move(window, to: target) { [weak self] in
+            move(window, to: target) { [weak self, target] in
                 guard let self else { return }
                 arrived(id, at: target)
                 placeFollowers(of: id)

@@ -1,10 +1,11 @@
 import Foundation
+import os
 
 /// A rule that makes matching windows float instead of tile.
 ///
 /// `app` matches the application name or the bundle identifier.
 /// `title` matches the window title. Both are case-insensitive regular expressions.
-public struct FloatRule: Codable, Equatable {
+public struct FloatRule: Sendable, Codable, Equatable {
     public var app: String?
     public var title: String?
     /// A disabled rule forces matching windows to tile.
@@ -26,14 +27,14 @@ public struct FloatRule: Codable, Equatable {
         return app != nil || title != nil
     }
 
-    private static var cache: [String: NSRegularExpression] = [:]
+    private static let cache = OSAllocatedUnfairLock(initialState: [String: NSRegularExpression]())
 
     private static func test(_ pattern: String, _ value: String) -> Bool {
         let regex: NSRegularExpression
-        if let cached = cache[pattern] {
+        if let cached = cache.withLock({ $0[pattern] }) {
             regex = cached
         } else if let compiled = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-            cache[pattern] = compiled
+            cache.withLock { $0[pattern] = compiled }
             regex = compiled
         } else {
             return value.caseInsensitiveCompare(pattern) == .orderedSame

@@ -74,7 +74,8 @@ enum Spaces {
 ///
 /// They may disappear in a later macOS. Then the lookup returns nil, and Pop Mac still runs.
 enum SkyLight {
-    private static let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+    /// The loader handle is immutable and remains open for the process lifetime.
+    private nonisolated(unsafe) static let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
 
     static func function<T>(_ name: String, as _: T.Type) -> T? {
         guard let handle, let symbol = dlsym(handle, name) else { return nil }

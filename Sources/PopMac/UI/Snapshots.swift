@@ -3,6 +3,7 @@ import AppKit
 /// Saves images of Pop Mac's own windows, for checking the UI during development.
 ///
 /// An app can capture its own windows without the Screen Recording permission.
+@MainActor
 enum Snapshots {
     private typealias CreateImage = @convention(c) (CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption) -> Unmanaged<CGImage>?
 

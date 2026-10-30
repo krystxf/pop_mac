@@ -1,5 +1,7 @@
 # Development
 
+Build with Swift 6.4 or newer in Swift 6 language mode. CI and release builds use Swift 6.4.2.
+
 ## Building from source
 
 You need the Swift toolchain (Xcode or the Command Line Tools).

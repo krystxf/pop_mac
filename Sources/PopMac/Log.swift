@@ -8,7 +8,7 @@ import os
 /// who started Pop Mac sees stderr.
 enum Log {
     private static let logger = Logger(subsystem: "dev.krystof.popmac", category: "pop")
-    static var verbose = ProcessInfo.processInfo.environment["POP_MAC_DEBUG"] != nil
+    static let verbose = ProcessInfo.processInfo.environment["POP_MAC_DEBUG"] != nil
 
     static func debug(_ message: @autoclosure () -> String, private details: @autoclosure () -> String? = nil) {
         guard verbose else { return }

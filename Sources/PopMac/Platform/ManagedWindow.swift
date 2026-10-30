@@ -3,6 +3,7 @@ import ApplicationServices
 import PopCore
 
 /// A top-level window of another application, reached through Accessibility.
+@MainActor
 final class ManagedWindow {
     let id: WindowID
     let element: AXUIElement
@@ -62,10 +63,9 @@ final class ManagedWindow {
         AX.set(appElement, kAXFrontmostAttribute, kCFBooleanTrue)
         app.activate(options: [])
         // Some apps (Finder) focus another element when they activate. Raise again after that.
-        let element = element
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-            AX.set(element, kAXMainAttribute, kCFBooleanTrue)
+            AXUIElementPerformAction(self.element, kAXRaiseAction as CFString)
+            AX.set(self.element, kAXMainAttribute, kCFBooleanTrue)
         }
     }
 

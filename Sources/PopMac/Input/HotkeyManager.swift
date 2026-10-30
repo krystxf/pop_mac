@@ -6,13 +6,14 @@ import PopCore
 /// The tap consumes a matching key press, so the focused application never
 /// sees it. It needs Accessibility access, which Pop Mac needs anyway.
 /// Unlike Carbon hot keys, a tap also sees synthetic key events and key repeats.
+@MainActor
 final class HotkeyManager {
     private struct Binding: Hashable {
         let code: Int64
         let modifiers: UInt64
     }
 
-    private var handlers: [Binding: (handler: () -> Void, repeats: Bool)] = [:]
+    private var handlers: [Binding: (handler: @MainActor () -> Void, repeats: Bool)] = [:]
     /// Key codes whose key-down was consumed, so their key-up is consumed too.
     private var swallowed = Set<Int64>()
     private var tap: CFMachPort?
@@ -23,7 +24,7 @@ final class HotkeyManager {
         installTap()
     }
 
-    deinit {
+    isolated deinit {
         if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
     }
 
@@ -32,7 +33,9 @@ final class HotkeyManager {
         let callback: CGEventTapCallBack = { _, type, event, userInfo in
             guard let userInfo else { return Unmanaged.passUnretained(event) }
             let manager = Unmanaged<HotkeyManager>.fromOpaque(userInfo).takeUnretainedValue()
-            return manager.handle(type, event)
+            var result: Unmanaged<CGEvent>?
+            MainActor.assumeIsolated { result = manager.handle(type, event) }
+            return result
         }
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
@@ -73,7 +76,7 @@ final class HotkeyManager {
 
     /// Registers a key combination. Returns false if the key name is unknown.
     @discardableResult
-    func register(_ combo: KeyCombo, repeats: Bool = false, handler: @escaping () -> Void) -> Bool {
+    func register(_ combo: KeyCombo, repeats: Bool = false, handler: @escaping @MainActor () -> Void) -> Bool {
         guard let code = KeyCodes.code(for: combo.key) else {
             Log.warn("unknown key name: \(combo.key)")
             return false

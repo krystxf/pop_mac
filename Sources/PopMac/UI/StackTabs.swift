@@ -364,7 +364,7 @@ private final class TabGhost: NSPanel {
     }
 
     /// Shrinks the tab into `slot`, then calls `completion`.
-    func settle(onto slot: NSRect, completion: @escaping () -> Void) {
+    func settle(onto slot: NSRect, completion: @escaping @MainActor () -> Void) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)

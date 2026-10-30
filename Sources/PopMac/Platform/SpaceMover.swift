@@ -13,7 +13,7 @@ enum SpaceMover {
     /// True while the synthetic drag runs, so it is not taken for a user drag.
     private(set) static var isMoving = false
 
-    static func move(_ window: ManagedWindow, next: Bool, completion: @escaping () -> Void) {
+    static func move(_ window: ManagedWindow, next: Bool, completion: @escaping @MainActor () -> Void) {
         guard let frame = window.frame, !isMoving else { return }
         isMoving = true
         waitForModifierRelease(deadline: Date().addingTimeInterval(1.5)) {
@@ -37,7 +37,7 @@ enum SpaceMover {
         }
     }
 
-    private static func perform(frame: PopCore.Rect, next: Bool, completion: @escaping () -> Void) {
+    private static func perform(frame: PopCore.Rect, next: Bool, completion: @escaping @MainActor () -> Void) {
         let source = CGEventSource(stateID: .hidSystemState)
         let original = CGEvent(source: nil)?.location ?? .zero
         // A point in the title bar, clear of the traffic-light buttons.

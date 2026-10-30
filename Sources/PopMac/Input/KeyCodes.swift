@@ -2,6 +2,7 @@ import Carbon
 import Foundation
 
 /// Maps Pop Shell key names (GDK names) to macOS virtual key codes.
+@MainActor
 enum KeyCodes {
     private static let fixed: [String: Int] = [
         "Left": kVK_LeftArrow, "Right": kVK_RightArrow, "Up": kVK_UpArrow, "Down": kVK_DownArrow,

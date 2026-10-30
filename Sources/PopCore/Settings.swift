@@ -84,7 +84,7 @@ public struct KeyCombo: Hashable, CustomStringConvertible {
 }
 
 /// The actions that can be bound to keys. The names match Pop Shell's settings.
-public enum Action: String, CaseIterable, Codable {
+public enum Action: String, Sendable, CaseIterable, Codable {
     // Global
     case tileEnter = "tile-enter"
     case focusLeft = "focus-left"
