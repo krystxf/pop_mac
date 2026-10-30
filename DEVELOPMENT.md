@@ -38,6 +38,7 @@ POP_MAC_SNAPSHOT_DIR=/tmp/shots build/PopMac.app/Contents/MacOS/PopMac   # save 
 `make prod` installs the latest release as **Pop Mac Prod** in `~/Applications`, next to your development build.
 Only one copy can manage windows, so starting a build quits the other one. Pop Mac Prod needs its own Accessibility access.
 It is signed again with the Developer ID certificate in your keychain, if there is one, so the access stays across updates.
+It installs only a release that Apple notarized and that the Pop Mac team signed, so it never signs someone else's app.
 
 CI runs on every push and pull request. It checks the formatting with SwiftFormat, lints the
 shell script and the workflow, builds with warnings as errors, runs the tests, and builds the app

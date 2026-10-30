@@ -9,12 +9,27 @@
 # SIGN_IDENTITY, or else the first "Developer ID Application" certificate in
 # the keychain. A Developer ID signature keeps the Accessibility permission
 # across updates. Without one it signs ad-hoc, and macOS asks again each time.
+#
+# Before it signs anything, the script checks that Apple notarized the download
+# and that the Pop Mac team (TEAM_ID) signed it, so it never signs a stranger's app.
 set -euo pipefail
+
+TEAM_ID="${TEAM_ID:-R6WU5ABNG2}"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 curl -fsSL -o "$TMP/PopMac.zip" https://github.com/krystxf/pop_mac/releases/latest/download/PopMac.zip
 ditto -x -k "$TMP/PopMac.zip" "$TMP"
+
+# The requirement of a Developer ID signature from the Pop Mac team.
+REQUIREMENT="anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
+REQUIREMENT+=" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
+REQUIREMENT+=" and certificate leaf[subject.OU] = \"$TEAM_ID\""
+if ! codesign --verify --deep --strict -R="$REQUIREMENT" "$TMP/PopMac.app" \
+    || ! spctl --assess --type execute "$TMP/PopMac.app"; then
+    echo "The latest release is not notarized and signed by team $TEAM_ID. Nothing was installed." >&2
+    exit 1
+fi
 
 DEST="$HOME/Applications/Pop Mac Prod.app"
 mkdir -p "$HOME/Applications"
