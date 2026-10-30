@@ -61,21 +61,26 @@ The code has two parts:
 
 ## Releases
 
-Changes reach `main` through pull requests, and merging one makes a release:
+Changes reach `main` through pull requests, and merging one makes a release
+of every pull request merged since the last release tag:
 
 - The labels `release:major`, `release:minor`, and `release:patch` pick the part of the version to bump.
+  When several pull requests go into one release, the highest bump wins.
   Without a label, a change to code makes a patch release, and a change to docs or workflows only makes none.
   The label `no-release` skips the release.
-- The "Release notes" section of the pull request becomes the notes of the release.
-- The Release workflow builds the app and signs it with the Developer ID. It notarizes and staples it,
-  tags the merge commit, and publishes the GitHub release with `PopMac.zip`.
+- The "Release notes" sections of the pull requests become the notes of the release.
+- The Release workflow builds the app, signs it with the Developer ID, notarizes and staples it, and
+  publishes the GitHub release with `PopMac.zip`. Publishing the release creates its tag.
   Then it updates the cask in [krystxf/homebrew-tap](https://github.com/krystxf/homebrew-tap)
   from `packaging/homebrew/pop-mac.rb`.
+- A release that fails can be re-run from its failed job. A run that GitHub cancels, or one that
+  fails before it publishes, loses nothing: the next run releases its pull requests too.
 
 Builds take their version from the latest release tag. The version in `Resources/Info.plist` is only a fallback.
 
 The workflow reads these secrets from the `release` environment, which only `main` can use.
-It builds the app before it imports the certificate, and deletes the keychain right after signing.
+The app builds in a job without secrets. The job with the secrets checks out no code from the
+repository and only signs, notarizes, and publishes the built app.
 
 | Secret | Content |
 | --- | --- |

@@ -40,6 +40,55 @@ check "a one-line comment keeps the notes" $'- Fix focus\n- Faster tiling' \
 check "a comment after a note goes" $'- Fix X\n- Fix Y' \
     "$(./release-notes.sh <<< $'## Release notes\n- Fix X <!-- internal -->\n- Fix Y')"
 
+# plan-release.sh, with a fake gh that answers from files, in a throwaway repository.
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/bin" "$tmp/data" "$tmp/repo"
+cat > "$tmp/bin/gh" << 'FAKE'
+#!/usr/bin/env bash
+# A fake gh: api repos/R/commits/SHA/pulls, api --paginate repos/R/pulls/N/files, pr view N --repo R --json FIELD.
+if [[ "$1" == api && "$2" == --paginate ]]; then
+    number="${3%/files}"
+    cat "$FAKE_GH_DATA/pr-${number##*/}-files"
+elif [[ "$1" == api ]]; then
+    sha="${2%/pulls}"
+    cat "$FAKE_GH_DATA/commit-${sha##*/}" 2> /dev/null || true
+else
+    cat "$FAKE_GH_DATA/pr-$3-$7"
+fi
+FAKE
+chmod +x "$tmp/bin/gh"
+commit() {
+    git -C "$tmp/repo" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m "$1"
+    git -C "$tmp/repo" rev-parse HEAD
+}
+plan() {
+    (cd "$tmp/repo" && PATH="$tmp/bin:$PATH" FAKE_GH_DATA="$tmp/data" GITHUB_REPOSITORY=owner/repo \
+        "$OLDPWD/plan-release.sh" "$tmp/notes.md" 2> /dev/null)
+}
+git -C "$tmp/repo" init -q
+commit "Before the last release" > /dev/null
+git -C "$tmp/repo" tag v0.5.0
+echo 1 > "$tmp/data/commit-$(commit "Merge #1")"
+echo 2 > "$tmp/data/commit-$(commit "Merge #2")"
+echo 3 > "$tmp/data/commit-$(commit "Merge #3")"
+commit "A commit from no pull request" > /dev/null
+printf 'release:minor' > "$tmp/data/pr-1-labels"
+printf 'Sources/A.swift\n' > "$tmp/data/pr-1-files"
+printf '## Release notes\n\n- Feature one\n' > "$tmp/data/pr-1-body"
+printf '' > "$tmp/data/pr-2-labels"
+printf 'README.md\n' > "$tmp/data/pr-2-files"
+printf '' > "$tmp/data/pr-3-labels"
+printf 'Sources/B.swift\n' > "$tmp/data/pr-3-files"
+printf '' > "$tmp/data/pr-3-body"
+printf 'Fix a crash' > "$tmp/data/pr-3-title"
+check "the plan releases every pull request since the tag" 0.6.0 "$(plan)"
+check "the notes have each releasing pull request" $'- Feature one\n- Fix a crash\nFrom #1, #3.' \
+    "$(grep -E '^- |^From' "$tmp/notes.md")"
+printf 'no-release' > "$tmp/data/pr-1-labels"
+printf 'no-release' > "$tmp/data/pr-3-labels"
+check "the plan makes no release when nothing releases" "" "$(plan)"
+
 if ((failures > 0)); then
     echo "$failures failed"
     exit 1

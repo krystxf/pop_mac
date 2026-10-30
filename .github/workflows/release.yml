@@ -1,8 +1,9 @@
 name: Release
 
-# Every pull request merged into main makes a release, unless it is labeled no-release or changes
-# only docs or workflows. The labels release:major, release:minor, and release:patch pick the part of the
-# version to bump. The "Release notes" section of the pull request becomes the notes of the release.
+# Releases every pull request merged into main since the last release tag, unless each one is
+# labeled no-release or changes only docs or workflows. The labels release:major, release:minor,
+# and release:patch pick the part of the version to bump, and the highest one wins. The "Release
+# notes" sections of the pull requests become the notes of the release.
 #
 # The workflow runs on the push of the merge, not on the closed pull request, so that it has the
 # secrets for pull requests from forks too.
@@ -14,6 +15,13 @@ on:
 permissions:
   contents: read
 
+# The default shell has no pipefail, so a failing command in a pipe would go unnoticed.
+defaults:
+  run:
+    shell: bash
+
+# One release at a time. GitHub keeps only the newest waiting run and cancels the others,
+# which loses nothing, because each run releases everything since the last tag.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -22,69 +30,96 @@ jobs:
   plan:
     name: Plan
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      pr: ${{ steps.version.outputs.pr }}
+      version: ${{ steps.plan.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          # The token stays out of .git/config, where the build could read it.
           persist-credentials: false
 
-      - name: Pick the version
-        id: version
+      - name: Pick the version and write the notes
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PR_NUMBER="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq 'map(select(.merged_at != null and .base.ref == "main")) | .[0].number // empty')"
-          if [ -z "$PR_NUMBER" ]; then
-            echo "The commit comes from no pull request. No release."
-            exit 0
-          fi
-          LABELS="$(gh pr view "$PR_NUMBER" --json labels --jq '[.labels[].name] | join(" ")')"
-          bump="$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path' | ./scripts/release-bump.sh "$LABELS")"
-          if [ "$bump" = none ]; then
-            echo "Pull request #$PR_NUMBER makes no release: it is labeled no-release, or changes only docs or workflows."
-            exit 0
-          fi
-          last="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
-          version="$(./scripts/next-version.sh "$last" "$bump")"
-          echo "Releasing $version, a $bump release after $last."
+          version="$(./scripts/plan-release.sh "$RUNNER_TEMP/notes.md")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "pr=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
-  release:
-    name: Release
+      - if: steps.plan.outputs.version != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes.md
+          if-no-files-found: error
+
+  # The build runs in its own job, without secrets, so code that runs during the
+  # build cannot reach the certificate, the notary key, or a token that can write.
+  build:
+    name: Build
     needs: plan
     if: needs.plan.outputs.version != ''
     runs-on: macos-latest
-    timeout-minutes: 45
-    # The secrets live in this environment, which only main can use.
-    environment: release
-    permissions:
-      contents: write
+    timeout-minutes: 30
     env:
       VERSION: ${{ needs.plan.outputs.version }}
-      PR_NUMBER: ${{ needs.plan.outputs.pr }}
     steps:
-      # Actions in this job see the secrets, so they are pinned to a commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          # The token stays out of .git/config, where the build could read it.
           persist-credentials: false
 
-      # The build runs without the certificate, so build-time code cannot use it.
       - name: Build
         run: ./scripts/bundle.sh
+
+      - name: Smoke test
+        run: |
+          build/PopMac.app/Contents/MacOS/PopMac --version | grep -F "Pop Mac $VERSION"
+          build/PopMac.app/Contents/MacOS/PopMac --diagnose
+
+      - name: Package
+        run: ditto -c -k --keepParent build/PopMac.app unsigned.zip
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-app
+          path: unsigned.zip
+          if-no-files-found: error
+
+  # This job has the secrets. It checks out no code from the repository and runs only
+  # the commands below and Apple's tools, on the app from the build job.
+  release:
+    name: Sign and publish
+    needs: [plan, build]
+    runs-on: macos-latest
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: write
+    outputs:
+      sha256: ${{ steps.publish.outputs.sha256 }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unsigned-app
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
 
       - name: Sign with the Developer ID
         env:
           DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
           DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
         run: |
+          ditto -x -k unsigned.zip .
           keychain="$RUNNER_TEMP/signing.keychain-db"
           password="$(openssl rand -hex 16)"
           echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
@@ -100,15 +135,10 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/developer-id.p12"
           # The same flags as scripts/bundle.sh, with the secure timestamp that notarization requires.
-          codesign --force --deep --options runtime --timestamp --keychain "$keychain" --sign "Developer ID Application" build/PopMac.app
+          codesign --force --deep --options runtime --timestamp --keychain "$keychain" --sign "Developer ID Application" PopMac.app
           security delete-keychain "$keychain"
-          codesign --verify --deep --strict --verbose=2 build/PopMac.app
-          codesign --display --verbose=2 build/PopMac.app 2>&1 | grep -E "^(Authority|TeamIdentifier|Timestamp)="
-
-      - name: Smoke test
-        run: |
-          build/PopMac.app/Contents/MacOS/PopMac --version | grep -F "Pop Mac $VERSION"
-          build/PopMac.app/Contents/MacOS/PopMac --diagnose
+          codesign --verify --deep --strict --verbose=2 PopMac.app
+          codesign --display --verbose=2 PopMac.app 2>&1 | grep -E "^(Authority|TeamIdentifier|Timestamp)="
 
       - name: Notarize
         env:
@@ -117,75 +147,67 @@ jobs:
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
           key="$RUNNER_TEMP/notary-key.p8"
+          trap 'rm -f "$key"' EXIT
           printf '%s\n' "$NOTARY_KEY" > "$key"
           auth=(--key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
-          ditto -c -k --keepParent build/PopMac.app "$RUNNER_TEMP/notarize.zip"
+          ditto -c -k --keepParent PopMac.app "$RUNNER_TEMP/notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" "${auth[@]}" --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary.json"
           cat "$RUNNER_TEMP/notary.json"
           if [ "$(jq -r .status "$RUNNER_TEMP/notary.json")" != Accepted ]; then
             xcrun notarytool log "$(jq -r .id "$RUNNER_TEMP/notary.json")" "${auth[@]}"
             exit 1
           fi
-          xcrun stapler staple build/PopMac.app
-          spctl --assess --verbose=2 --type exec build/PopMac.app
-          ditto -c -k --keepParent build/PopMac.app PopMac.zip
+          xcrun stapler staple PopMac.app
+          spctl --assess --verbose=2 --type exec PopMac.app
+          ditto -c -k --keepParent PopMac.app PopMac.zip
 
-      - name: Tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v$VERSION" -m "Pop Mac $VERSION"
-          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
-          git -c http.extraheader="AUTHORIZATION: basic $auth" push origin "v$VERSION"
-
+      # A published release is immutable, so the zip goes into a draft first. Publishing
+      # the draft creates the tag, so a run that fails earlier leaves no tag behind.
       - name: Publish the release
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PR_BODY="$(gh pr view "$PR_NUMBER" --json body --jq .body)"
-          PR_TITLE="$(gh pr view "$PR_NUMBER" --json title --jq .title)"
-          PR_URL="$(gh pr view "$PR_NUMBER" --json url --jq .url)"
-          notes="$(printf '%s\n' "$PR_BODY" | ./scripts/release-notes.sh)"
-          if [ -z "$notes" ]; then notes="- $PR_TITLE"; fi
-          {
-            echo "Install or update with Homebrew:"
-            echo
-            echo '```sh'
-            echo 'brew install --cask krystxf/tap/pop-mac   # or: brew upgrade --cask pop-mac'
-            echo '```'
-            echo
-            echo "## Changes"
-            echo "$notes"
-            echo
-            echo "From $PR_URL."
-            echo
-            echo "## Upgrading"
-            echo "Releases are signed with a Developer ID and notarized by Apple, so Pop Mac keeps its Accessibility access across upgrades."
-            echo "If you installed Pop Mac with the \`pop-mac\` formula, switch to the cask once:"
-            echo
-            echo '```sh'
-            echo 'brew uninstall pop-mac && brew install --cask krystxf/tap/pop-mac'
-            echo '```'
-          } > "$RUNNER_TEMP/notes.md"
-          # A published release is immutable, so the zip goes into a draft first.
-          gh release create "v$VERSION" PopMac.zip --draft --verify-tag --title "Pop Mac $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          if [ "$(gh release view "v$VERSION" --json isDraft --jq .isDraft 2> /dev/null)" = true ]; then
+            echo "Deleting the draft of an earlier attempt."
+            gh release delete "v$VERSION" --yes
+          fi
+          gh release create "v$VERSION" PopMac.zip --draft --target "$GITHUB_SHA" --title "Pop Mac $VERSION" --notes-file notes.md
           gh release edit "v$VERSION" --draft=false
+          echo "sha256=$(shasum -a 256 PopMac.zip | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
-      # The key stays in tap/.git/config for the push below. No untrusted code runs after this step.
+  # In its own job, so that a failed push to the tap can be re-run alone.
+  cask:
+    name: Update the Homebrew cask
+    needs: [plan, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      SHA256: ${{ needs.release.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging/homebrew
+
+      # The key stays in tap/.git/config for the push below. No code from either repository runs here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: # zizmor: ignore[artipacked]
           repository: krystxf/homebrew-tap
           ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
           path: tap
 
-      - name: Update the Homebrew cask
+      - name: Update the cask
         run: |
-          sha="$(shasum -a 256 PopMac.zip | cut -d ' ' -f 1)"
           mkdir -p tap/Casks
-          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$sha/" packaging/homebrew/pop-mac.rb > tap/Casks/pop-mac.rb
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$SHA256/" packaging/homebrew/pop-mac.rb > tap/Casks/pop-mac.rb
           cd tap
+          if git diff --quiet -- Casks/pop-mac.rb && git ls-files --error-unmatch Casks/pop-mac.rb > /dev/null 2>&1; then
+            echo "The cask is up to date."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Casks/pop-mac.rb
