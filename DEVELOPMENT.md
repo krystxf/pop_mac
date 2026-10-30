@@ -46,7 +46,7 @@ CI runs on every push and pull request:
 | --- | --- |
 | Lint | SwiftFormat, ShellCheck, and actionlint. zizmor for security problems in the workflows. The tests of the release scripts. The relative links in the Markdown files. |
 | Build and test | A build with warnings as errors, the tests, and the app bundle, which is attached to the run as the `PopMac` artifact. A smoke test of the app. The minimum macOS in `Package.swift`, `Info.plist`, the app, and the cask. `brew style` and `brew audit` on the cask. |
-| Smoke test | The app from the build job on macOS 15 and macOS 14, which catches APIs and private symbols that older systems lack. |
+| Smoke test | The app from the build job on macOS 15, which catches APIs and private symbols that older systems lack. GitHub no longer provides macOS 14 runners; the minimum deployment target is checked separately. |
 | Tests with sanitizers | The tests with the address sanitizer and the thread sanitizer. |
 | Swift 6 concurrency report | The warnings that the Swift 6 language mode would turn into errors, in the job summary. It never fails. |
 | Release notes | For a pull request into `main` that makes a release: notes in the "Release notes" section, and at most one release label. |
