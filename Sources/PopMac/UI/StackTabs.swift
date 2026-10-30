@@ -3,7 +3,8 @@ import PopCore
 
 /// The tab bar drawn above a stack of windows.
 ///
-/// A click on a tab focuses its window. A drag moves the whole stack.
+/// A click on a tab focuses its window. A drag along the bar moves the tab
+/// to another position. A drag off the bar moves the whole stack.
 /// The bar glides along when its stack moves.
 final class StackTabBar: NSPanel, GlidingWindow {
     private let stackView = NSStackView()
@@ -11,6 +12,8 @@ final class StackTabBar: NSPanel, GlidingWindow {
     var fadeGeneration = 0
     var isFadingOut = false
     var onSelect: ((WindowID) -> Void)?
+    /// Called when a tab was dropped along the bar, with its new index.
+    var onReorder: ((WindowID, Int) -> Void)?
     var onDrag: ((DragPhase) -> Void)?
 
     enum DragPhase {
@@ -30,6 +33,11 @@ final class StackTabBar: NSPanel, GlidingWindow {
 
     /// What the bar shows now, so an unchanged bar is not rebuilt.
     private var shown: (tabs: [Tab], active: WindowID, color: NSColor)?
+
+    /// The order of the tabs when a drag along the bar began.
+    private var orderBeforeDrag: [NSView]?
+    /// True after a drag left the bar, so it moves the stack until the mouse goes up.
+    private var isMovingStack = false
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -70,7 +78,12 @@ final class StackTabBar: NSPanel, GlidingWindow {
             for tab in tabs {
                 let button = TabButton(tab: tab, isActive: tab.id == active, color: color)
                 button.onClick = { [weak self] in self?.onSelect?(tab.id) }
-                button.onDrag = { [weak self] in self?.onDrag?($0) }
+                button.onDragMoved = { [weak self, weak button] point in
+                    if let self, let button { dragMoved(button, to: point) }
+                }
+                button.onDragEnded = { [weak self, weak button] flags in
+                    if let self, let button { dragEnded(button, id: tab.id, flags: flags) }
+                }
                 stackView.addArrangedSubview(button)
                 // A horizontal stack view does not stretch its views to its height.
                 let insets = stackView.edgeInsets.top + stackView.edgeInsets.bottom
@@ -82,11 +95,54 @@ final class StackTabBar: NSPanel, GlidingWindow {
         appear(at: Displays.toCocoa(frame))
         order(.above, relativeTo: Int(window))
     }
+
+    // MARK: - Dragging
+
+    /// Moves the dragged tab along the bar, or moves the stack once the mouse leaves the bar.
+    private func dragMoved(_ button: NSView, to point: NSPoint) {
+        // Some slack above and below keeps a sloppy drag along the bar.
+        let bar = NSRect(origin: .zero, size: frame.size).insetBy(dx: 0, dy: -frame.height)
+        if !isMovingStack, stackView.arrangedSubviews.count > 1, bar.contains(point) {
+            if orderBeforeDrag == nil { orderBeforeDrag = stackView.arrangedSubviews }
+            // The tab takes the place after every other tab whose center is left of the mouse.
+            let x = stackView.convert(point, from: nil).x
+            let index = stackView.arrangedSubviews.filter { $0 !== button && $0.frame.midX < x }.count
+            move(button, to: index)
+            return
+        }
+        if !isMovingStack {
+            isMovingStack = true
+            for (index, view) in (orderBeforeDrag ?? []).enumerated() { move(view, to: index) }
+            orderBeforeDrag = nil
+        }
+        onDrag?(.moved)
+    }
+
+    private func dragEnded(_ button: NSView, id: WindowID, flags: CGEventFlags) {
+        if isMovingStack {
+            onDrag?(.ended(flags))
+        } else if orderBeforeDrag != nil, let index = stackView.arrangedSubviews.firstIndex(of: button) {
+            onReorder?(id, index)
+        }
+        orderBeforeDrag = nil
+        isMovingStack = false
+    }
+
+    /// Moves a tab to another index. It stays in the view tree, so it keeps getting the drag's events.
+    private func move(_ view: NSView, to index: Int) {
+        guard stackView.arrangedSubviews.firstIndex(of: view) != index else { return }
+        stackView.removeArrangedSubview(view)
+        stackView.insertArrangedSubview(view, at: index)
+        stackView.layoutSubtreeIfNeeded()
+    }
 }
 
 private final class TabButton: NSView {
     var onClick: (() -> Void)?
-    var onDrag: ((StackTabBar.DragPhase) -> Void)?
+    /// Called while the tab is dragged, with the mouse in window coordinates.
+    var onDragMoved: ((NSPoint) -> Void)?
+    /// Called when the drag ended, with the modifiers held at mouse-up.
+    var onDragEnded: ((CGEventFlags) -> Void)?
     private var downPoint: NSPoint?
     private var isDragging = false
     private var glass: NSView?
@@ -176,12 +232,12 @@ private final class TabButton: NSView {
         if !isDragging, hypot(point.x - downPoint.x, point.y - downPoint.y) > 4 {
             isDragging = true
         }
-        if isDragging { onDrag?(.moved) }
+        if isDragging { onDragMoved?(point) }
     }
 
     override func mouseUp(with event: NSEvent) {
         if isDragging {
-            onDrag?(.ended(CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))))
+            onDragEnded?(CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue)))
         } else if downPoint != nil {
             onClick?()
         }
@@ -205,6 +261,7 @@ final class StackTabsController {
     func sync(
         _ entries: [Entry], color: NSColor,
         onSelect: @escaping (WindowID) -> Void,
+        onReorder: @escaping (WindowID, Int) -> Void,
         onDrag: @escaping (StackNode, StackTabBar.DragPhase) -> Void
     ) {
         var seen = Set<Int>()
@@ -213,6 +270,7 @@ final class StackTabsController {
             let bar = bars[entry.stack.id] ?? StackTabBar()
             bars[entry.stack.id] = bar
             bar.onSelect = onSelect
+            bar.onReorder = onReorder
             let stack = entry.stack
             bar.onDrag = { onDrag(stack, $0) }
             bar.update(tabs: entry.tabs, active: entry.stack.active, color: color, frame: entry.frame, above: entry.stack.active)

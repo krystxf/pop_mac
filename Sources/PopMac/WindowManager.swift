@@ -1041,6 +1041,11 @@ final class WindowManager {
 
         tabs.sync(entries, color: accentColor) { [weak self] id in
             MainActor.assumeIsolated { self?.activate(id, moveCursor: false) }
+        } onReorder: { [weak self] id, index in
+            MainActor.assumeIsolated {
+                self?.autoTiler?.moveInStack(id, to: index)
+                self?.activate(id, moveCursor: false)
+            }
         } onDrag: { [weak self] stack, phase in
             MainActor.assumeIsolated {
                 switch phase {
