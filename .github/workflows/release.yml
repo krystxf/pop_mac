@@ -173,8 +173,9 @@ jobs:
           gh release create "v$VERSION" PopMac.zip --draft --verify-tag --title "Pop Mac $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
           gh release edit "v$VERSION" --draft=false
 
+      # The key stays in tap/.git/config for the push below. No untrusted code runs after this step.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
+        with: # zizmor: ignore[artipacked]
           repository: krystxf/homebrew-tap
           ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
           path: tap

@@ -19,6 +19,8 @@ env:
   SWIFTFORMAT_SHA256: a291dd7e1e563562565ca18193da0c1aa0578b45973335d827e214b2d2d769ec
   ACTIONLINT_VERSION: 1.7.12
   ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+  ZIZMOR_VERSION: 1.31.1
+  ZIZMOR_SHA256: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
 
 jobs:
   lint:
@@ -57,6 +59,21 @@ jobs:
 
       - name: actionlint
         run: actionlint -color
+
+      - name: Install zizmor
+        run: |
+          curl -fsSL -o zizmor.tar.gz \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$ZIZMOR_SHA256  zizmor.tar.gz" | sha256sum --check --strict
+          tar -xzf zizmor.tar.gz -C "$RUNNER_TEMP" zizmor
+          rm zizmor.tar.gz
+
+      # Finds security problems in the workflows, such as script injection or
+      # unpinned actions. Online, it also checks that each pinned commit belongs to its action.
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/zizmor" --format github .github/workflows'
 
       - name: Release scripts
         run: ./scripts/test-release-scripts.sh
