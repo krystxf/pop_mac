@@ -1,0 +1,51 @@
+name: Pull request
+
+# Checks that a pull request into main that makes a release has release notes
+# and at most one release label, because merging it publishes the notes.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pull-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  release-notes:
+    name: Release notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the release label and notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          if [ "$BASE" != main ]; then
+            echo "The pull request goes into $BASE, so merging it makes no release."
+            exit 0
+          fi
+          bump="$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path' | ./scripts/release-bump.sh "$LABELS")"
+          if [ "$bump" = none ]; then
+            echo "Merging makes no release."
+            exit 0
+          fi
+          notes="$(printf '%s\n' "$PR_BODY" | ./scripts/release-notes.sh)"
+          if [ -z "$notes" ]; then
+            echo "::error::Merging makes a $bump release. Fill in the \"Release notes\" section, or label the pull request no-release."
+            exit 1
+          fi
+          echo "Merging makes a $bump release with these notes:"
+          echo "$notes"
