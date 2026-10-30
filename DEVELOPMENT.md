@@ -53,7 +53,7 @@ The code has two parts:
 Changes reach `main` through pull requests, and merging one makes a release:
 
 - The labels `release:major`, `release:minor`, and `release:patch` pick the part of the version to bump.
-  Without a label, a change to code makes a patch release, and a change to docs only makes none.
+  Without a label, a change to code makes a patch release, and a change to docs or workflows only makes none.
   The label `no-release` skips the release.
 - The "Release notes" section of the pull request becomes the notes of the release.
 - The Release workflow builds the app and signs it with the Developer ID. It notarizes and staples it,

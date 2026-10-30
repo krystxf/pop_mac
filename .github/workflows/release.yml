@@ -1,7 +1,7 @@
 name: Release
 
 # Every pull request merged into main makes a release, unless it is labeled no-release or changes
-# only docs. The labels release:major, release:minor, and release:patch pick the part of the
+# only docs or workflows. The labels release:major, release:minor, and release:patch pick the part of the
 # version to bump. The "Release notes" section of the pull request becomes the notes of the release.
 #
 # The workflow runs on the push of the merge, not on the closed pull request, so that it has the
@@ -53,10 +53,10 @@ jobs:
             *" release:minor "*) bump="minor" ;;
             *" release:patch "*) bump="patch" ;;
             *)
-              if gh pr view "$PR_NUMBER" --json files --jq '.files[].path' | grep -qvE '\.md$|^docs/'; then
+              if gh pr view "$PR_NUMBER" --json files --jq '.files[].path' | grep -qvE '\.md$|^docs/|^\.github/'; then
                 bump="patch"
               else
-                echo "The pull request changes only docs. No release."
+                echo "The pull request changes only docs or workflows. No release."
                 exit 0
               fi
               ;;

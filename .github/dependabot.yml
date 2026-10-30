@@ -1,0 +1,12 @@
+# Keeps the actions in the workflows up to date. The workflows pin them to commits,
+# so they get no updates otherwise. Changes to workflows only make no release.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: [no-release]
