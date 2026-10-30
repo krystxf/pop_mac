@@ -1,0 +1,5 @@
+# GitHub Pages builds https://krystxf.github.io/pop_mac/ from the Markdown files
+# in this repository. README.md becomes the home page.
+title: Pop Mac
+description: The Pop!_OS Shell tiling window manager for macOS
+theme: jekyll-theme-cayman
