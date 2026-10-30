@@ -1,0 +1,60 @@
+name: End-to-end tests
+
+# Runs the end-to-end tests on a GitHub-hosted macOS runner. The tests need
+# Accessibility access, which the runner already gives the processes of a job.
+# A probe checks that before the tests run.
+
+on:
+  pull_request:
+    paths:
+      - Sources/**
+      - Tests/**
+      - Package.swift
+      - .github/workflows/e2e.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The default shell has no pipefail, so a failing command in a pipe would go unnoticed.
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: End-to-end tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner
+        run: |
+          sw_vers
+          system_profiler SPDisplaysDataType | grep -E "Resolution|Main Display" || true
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Check Accessibility access
+        run: |
+          printf '%s\n' 'import ApplicationServices' 'exit(AXIsProcessTrusted() ? 0 : 1)' > "$RUNNER_TEMP/probe.swift"
+          swiftc -o "$RUNNER_TEMP/ax-probe" "$RUNNER_TEMP/probe.swift"
+          if ! "$RUNNER_TEMP/ax-probe"; then
+            echo "::error::The runner gives this job no Accessibility access, which the end-to-end tests need."
+            exit 1
+          fi
+
+      # script gives the tests a terminal, so their output appears as they run, not only at the end.
+      - name: End-to-end tests
+        timeout-minutes: 15
+        env:
+          POP_MAC_E2E: "1"
+        run: script -q /dev/null swift test --skip-build --filter PopE2ETests
