@@ -35,6 +35,11 @@ check "notes without comments and details" $'- One change\n- Another change' "$(
 check "the empty template has no notes" "" "$(./release-notes.sh < ../.github/pull_request_template.md)"
 check "a description without the section has no notes" "" "$(./release-notes.sh <<< "Just text")"
 
+check "a one-line comment keeps the notes" $'- Fix focus\n- Faster tiling' \
+    "$(./release-notes.sh <<< $'## Release notes\n<!-- short -->\n- Fix focus\n- Faster tiling')"
+check "a comment after a note goes" $'- Fix X\n- Fix Y' \
+    "$(./release-notes.sh <<< $'## Release notes\n- Fix X <!-- internal -->\n- Fix Y')"
+
 if ((failures > 0)); then
     echo "$failures failed"
     exit 1

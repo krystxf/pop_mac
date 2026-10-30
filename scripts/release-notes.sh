@@ -5,8 +5,10 @@
 # Usage: release-notes.sh < <pull request description>
 set -euo pipefail
 
+# Perl removes the comments, which can span lines or share a line with a note.
 tr -d '\r' \
     | awk '/^## Release notes/ { take = 1; next } /^## / { take = 0 } take' \
-    | sed '/<!--/,/-->/d' \
-    | sed '/^-[[:space:]]*$/d' \
-    | sed '/^[[:space:]]*$/d'
+    | perl -0777 -pe 's/<!--.*?-->//gs' \
+    | sed 's/[[:space:]]*$//' \
+    | sed '/^-$/d' \
+    | sed '/^$/d'
