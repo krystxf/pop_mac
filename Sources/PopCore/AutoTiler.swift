@@ -388,6 +388,15 @@ public final class AutoTiler {
         place(window, beside: stack, in: fork, direction: direction)
     }
 
+    /// Moves a window's tab to another position in its stack, and selects it.
+    public func moveInStack(_ window: WindowID, to index: Int) {
+        guard let stack = findStack(window)?.stack, let from = stack.entities.firstIndex(of: window) else { return }
+        stack.entities.remove(at: from)
+        stack.entities.insert(window, at: min(max(index, 0), stack.entities.count))
+        stack.active = window
+        env.updateStacks(forest.allStacks())
+    }
+
     /// Moves a window out of its place, and into a tile beside a stack.
     public func move(_ window: WindowID, besideStackOf member: WindowID, direction: Direction) {
         batch {

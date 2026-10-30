@@ -318,6 +318,21 @@ struct AutoTilerTests {
         #expect(env.stacks.first?.active == 3)
     }
 
+    @Test func moveInStackPlacesTabAtIndex() {
+        env.open(tiler, 1)
+        tiler.toggleStacking(1)
+        env.open(tiler, 2)
+        env.open(tiler, 3)
+        tiler.moveInStack(1, to: 2)
+        #expect(env.stacks.first?.entities == [2, 3, 1])
+        #expect(env.stacks.first?.active == 1)
+        // An index past either end puts the tab at that end.
+        tiler.moveInStack(3, to: -1)
+        #expect(env.stacks.first?.entities == [3, 2, 1])
+        tiler.moveInStack(3, to: 9)
+        #expect(env.stacks.first?.entities == [2, 1, 3])
+    }
+
     @Test func toggleStackingSplitsStack() {
         env.open(tiler, 1)
         env.open(tiler, 2)
