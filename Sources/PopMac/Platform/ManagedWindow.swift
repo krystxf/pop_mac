@@ -79,11 +79,11 @@ final class ManagedWindow {
         }
     }
 
+    /// Everything about the window but its title, which can hold private data.
     func describe() -> String {
         """
         Window(\(id)) {
           app: "\(appName)" (\(bundleID)),
-          title: "\(title)",
           role: \(role ?? "-"), subrole: \(subrole ?? "-"),
           frame: \(frame.map { "\($0)" } ?? "-"),
           resizable: \(isResizable), minimized: \(isMinimized), fullscreen: \(isFullscreen)

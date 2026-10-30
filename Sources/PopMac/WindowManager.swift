@@ -287,7 +287,7 @@ final class WindowManager {
         windows[id] = window
         AXUIElementSetMessagingTimeout(element, 1.0)
         observer.watch(element)
-        Log.debug("registered \(window.appName): \(window.title) (\(id))")
+        Log.debug("registered \(window.appName) (\(id)):", private: window.title)
         return window
     }
 
@@ -530,7 +530,7 @@ final class WindowManager {
             if let fork = autoTiler?.attached[window.id] {
                 message += "\n  fork: \(fork.id), workspace: \(fork.workspace)"
             }
-            Log.info(message)
+            Log.info(message, private: "title: \"\(window.title)\"")
         }
     }
 
