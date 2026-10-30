@@ -70,19 +70,19 @@ struct TilingE2ETests {
         let session = try Session()
         defer { session.close() }
         let area = try session.app.workArea()
-        try session.startPopMac()
         let a = try session.app.open("A")
         let b = try session.app.open("B")
+        let originalFrame = try #require(E2E.frame(of: b))
+        try session.startPopMac()
         try await session.expectFrames([a: area.half(.left), b: area.half(.right)])
         try await session.expectKeyWindow(b)
 
         // B floats at its size from before tiling, and A takes the whole area.
         Keys.superPress(Keys.g)
         try await session.expectFrames([a: area])
-        // The test app opened B with 400 × 300 points of content. The title bar comes on top.
-        let restored = try await waitUntil(timeout: .seconds(5)) { try session.app.contentSize(of: b) == Size(width: 400, height: 300) }
-        let size = try session.app.contentSize(of: b)
-        #expect(restored, "B floats with \(size.width) × \(size.height) points of content, not 400 × 300")
+        // Compare with the actual frame before tiling. Frame checks allow one point
+        // of rounding, as they do for tiled windows on different display scales.
+        try await session.expectFrames([b: originalFrame])
 
         Keys.superPress(Keys.g)
         try await session.expectFrames([a: area.half(.left), b: area.half(.right)])
