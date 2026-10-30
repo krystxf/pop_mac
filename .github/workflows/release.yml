@@ -189,7 +189,9 @@ jobs:
             echo 'brew uninstall pop-mac && brew install --cask krystxf/tap/pop-mac'
             echo '```'
           } > "$RUNNER_TEMP/notes.md"
-          gh release create "v$VERSION" PopMac.zip --verify-tag --title "Pop Mac $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          # A published release is immutable, so the zip goes into a draft first.
+          gh release create "v$VERSION" PopMac.zip --draft --verify-tag --title "Pop Mac $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release edit "v$VERSION" --draft=false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
