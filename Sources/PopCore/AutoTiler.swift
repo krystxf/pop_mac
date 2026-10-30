@@ -562,13 +562,11 @@ public final class AutoTiler {
                 target.x -= delta
                 target.width += delta
             }
-        } else {
-            if splitFork(of: window, edge: .bottom) != nil {
-                target.height += delta
-            } else if splitFork(of: window, edge: .top) != nil {
-                target.y -= delta
-                target.height += delta
-            }
+        } else if splitFork(of: window, edge: .bottom) != nil {
+            target.height += delta
+        } else if splitFork(of: window, edge: .top) != nil {
+            target.y -= delta
+            target.height += delta
         }
 
         resizeTile(window, to: target)
