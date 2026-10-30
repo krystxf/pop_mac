@@ -40,17 +40,24 @@ Hold ⌥ while the menu is open to show **Copy Tiling Tree**, which copies the l
 
 ## Starting and updating
 
-To start Pop Mac at login, turn on **Launch at login** in its settings, or run `brew services start pop-mac`.
+To start Pop Mac at login, turn on **Launch at login** in its settings.
 
-To update, run `brew upgrade pop-mac`. To install the latest commit instead of the latest release, run
-`brew install --HEAD krystxf/tap/pop-mac`.
+To update, run `brew upgrade --cask pop-mac`. To run the latest commit instead of the latest release,
+build it from source, as [DEVELOPMENT.md](DEVELOPMENT.md) describes.
+
+If you installed Pop Mac with the `pop-mac` formula before, switch to the cask once:
+
+```sh
+brew uninstall pop-mac && brew install --cask krystxf/tap/pop-mac
+```
 
 ## Accessibility access
 
 On the first start, macOS asks for Accessibility access.
 Grant it in System Settings > Privacy & Security > Accessibility. Pop Mac starts when access is granted.
 
-An ad-hoc signature changes with every build, including every Homebrew upgrade.
+Releases are signed with a Developer ID and notarized by Apple, so the access stays across updates.
+A build from source without a certificate is signed ad-hoc, and that signature changes with every build.
 macOS then asks for access again: remove the old "PopMac" entry from the Accessibility list, and allow the new one.
 
 ## Recommended macOS settings

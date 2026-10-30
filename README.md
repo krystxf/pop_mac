@@ -17,12 +17,12 @@ The demo shows tiling. Dragging a window onto another one swaps them, and holdin
 
 ## Install
 
-Pop Mac needs macOS 13 or later. Homebrew builds it from source, so it also needs Xcode 16 or later.
+Pop Mac needs macOS 13 or later.
 
 ```sh
-brew install krystxf/tap/pop-mac
-open "$(brew --prefix)/opt/pop-mac/PopMac.app"
+brew install --cask krystxf/tap/pop-mac
+open /Applications/PopMac.app
 ```
 
 On the first start, allow Pop Mac in System Settings > Privacy & Security > Accessibility.
-To update, run `brew upgrade pop-mac`.
+To update, run `brew upgrade --cask pop-mac`.

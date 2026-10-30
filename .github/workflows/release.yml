@@ -1,0 +1,194 @@
+name: Release
+
+# Every pull request merged into main makes a release, unless it is labeled no-release or changes
+# only docs. The labels release:major, release:minor, and release:patch pick the part of the
+# version to bump. The "Release notes" section of the pull request becomes the notes of the release.
+#
+# The workflow runs on the push of the merge, not on the closed pull request, so that it has the
+# secrets for pull requests from forks too.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      pr: ${{ steps.version.outputs.pr }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Pick the version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq 'map(select(.merged_at != null and .base.ref == "main")) | .[0].number // empty')"
+          if [ -z "$PR_NUMBER" ]; then
+            echo "The commit comes from no pull request. No release."
+            exit 0
+          fi
+          LABELS="$(gh pr view "$PR_NUMBER" --json labels --jq '[.labels[].name] | join(" ")')"
+          case " $LABELS " in
+            *" no-release "*)
+              echo "Pull request #$PR_NUMBER is labeled no-release. No release."
+              exit 0
+              ;;
+            *" release:major "*) bump="major" ;;
+            *" release:minor "*) bump="minor" ;;
+            *" release:patch "*) bump="patch" ;;
+            *)
+              if gh pr view "$PR_NUMBER" --json files --jq '.files[].path' | grep -qvE '\.md$|^docs/'; then
+                bump="patch"
+              else
+                echo "The pull request changes only docs. No release."
+                exit 0
+              fi
+              ;;
+          esac
+          last="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
+          IFS=. read -r major minor patch <<< "${last#v}"
+          case "$bump" in
+            major) version="$((major + 1)).0.0" ;;
+            minor) version="$major.$((minor + 1)).0" ;;
+            patch) version="$major.$minor.$((patch + 1))" ;;
+          esac
+          echo "Releasing $version, a $bump release after $last."
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "pr=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Release
+    needs: plan
+    if: needs.plan.outputs.version != ''
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      PR_NUMBER: ${{ needs.plan.outputs.pr }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Import the Developer ID certificate
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -hex 16)"
+          echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          # shellcheck disable=SC2046 # Each keychain path is one word.
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/developer-id.p12"
+          security find-identity -v -p codesigning "$keychain"
+
+      - name: Build and sign
+        run: SIGN_IDENTITY="Developer ID Application" ./scripts/bundle.sh
+
+      - name: Smoke test
+        run: |
+          build/PopMac.app/Contents/MacOS/PopMac --version | grep -F "Pop Mac $VERSION"
+          build/PopMac.app/Contents/MacOS/PopMac --diagnose
+
+      - name: Notarize
+        env:
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          key="$RUNNER_TEMP/notary-key.p8"
+          printf '%s\n' "$NOTARY_KEY" > "$key"
+          auth=(--key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+          ditto -c -k --keepParent build/PopMac.app "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" "${auth[@]}" --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary.json"
+          cat "$RUNNER_TEMP/notary.json"
+          if [ "$(jq -r .status "$RUNNER_TEMP/notary.json")" != Accepted ]; then
+            xcrun notarytool log "$(jq -r .id "$RUNNER_TEMP/notary.json")" "${auth[@]}"
+            exit 1
+          fi
+          xcrun stapler staple build/PopMac.app
+          spctl --assess --verbose=2 --type exec build/PopMac.app
+          ditto -c -k --keepParent build/PopMac.app PopMac.zip
+
+      - name: Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Pop Mac $VERSION"
+          git push origin "v$VERSION"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_BODY="$(gh pr view "$PR_NUMBER" --json body --jq .body)"
+          PR_TITLE="$(gh pr view "$PR_NUMBER" --json title --jq .title)"
+          PR_URL="$(gh pr view "$PR_NUMBER" --json url --jq .url)"
+          # The "Release notes" section of the pull request, without its comments.
+          notes="$(printf '%s\n' "$PR_BODY" | tr -d '\r' \
+            | awk '/^## Release notes/ { take = 1; next } /^## / { take = 0 } take' \
+            | sed '/<!--/,/-->/d' | sed '/^-[[:space:]]*$/d' | sed '/^[[:space:]]*$/d')"
+          if [ -z "$notes" ]; then notes="- $PR_TITLE"; fi
+          {
+            echo "Install or update with Homebrew:"
+            echo
+            echo '```sh'
+            echo 'brew install --cask krystxf/tap/pop-mac   # or: brew upgrade --cask pop-mac'
+            echo '```'
+            echo
+            echo "## Changes"
+            echo "$notes"
+            echo
+            echo "From $PR_URL."
+            echo
+            echo "## Upgrading"
+            echo "Releases are signed with a Developer ID and notarized by Apple, so Pop Mac keeps its Accessibility access across upgrades."
+            echo "If you installed Pop Mac with the \`pop-mac\` formula, switch to the cask once:"
+            echo
+            echo '```sh'
+            echo 'brew uninstall pop-mac && brew install --cask krystxf/tap/pop-mac'
+            echo '```'
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "v$VERSION" PopMac.zip --verify-tag --title "Pop Mac $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+
+      - uses: actions/checkout@v7
+        with:
+          repository: krystxf/homebrew-tap
+          token: ${{ secrets.TAP_TOKEN }}
+          path: tap
+
+      - name: Update the Homebrew cask
+        run: |
+          sha="$(shasum -a 256 PopMac.zip | cut -d ' ' -f 1)"
+          mkdir -p tap/Casks
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$sha/" packaging/homebrew/pop-mac.rb > tap/Casks/pop-mac.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/pop-mac.rb
+          git commit -m "pop-mac $VERSION"
+          git push
