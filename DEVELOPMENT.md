@@ -72,7 +72,7 @@ The workflow needs these repository secrets:
 | `NOTARY_KEY` | The App Store Connect API key (`.p8` file) that notarizes the app |
 | `NOTARY_KEY_ID` | The ID of that key |
 | `NOTARY_ISSUER_ID` | The issuer ID of that key |
-| `TAP_TOKEN` | A fine-grained token that can write the contents of `krystxf/homebrew-tap` |
+| `TAP_DEPLOY_KEY` | The private SSH key of a deploy key with write access to `krystxf/homebrew-tap` |
 
 ## License
 
