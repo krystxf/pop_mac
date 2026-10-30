@@ -1,0 +1,56 @@
+name: End-to-end tests
+
+# An experiment: runs the end-to-end tests on a GitHub-hosted macOS runner. The
+# tests need Accessibility access, which the job grants by writing the runner's
+# TCC databases.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: End-to-end tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner
+        run: |
+          sw_vers
+          csrutil status || true
+          echo "user: $(whoami), session: $(launchctl managername || true)"
+          system_profiler SPDisplaysDataType | grep -E "Resolution|Main Display" || true
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" ".schema access" || true
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Build the Accessibility probe
+        run: |
+          printf '%s\n' 'import ApplicationServices' 'print(AXIsProcessTrusted() ? "trusted" : "not trusted")' > "$RUNNER_TEMP/probe.swift"
+          swiftc -o "$RUNNER_TEMP/ax-probe" "$RUNNER_TEMP/probe.swift"
+          "$RUNNER_TEMP/ax-probe"
+
+      - name: Grant Accessibility access
+        run: |
+          bin="$(swift build --show-bin-path)"
+          toolchain="$(dirname "$(xcrun --find swift)")/.."
+          ./scripts/ci-grant-accessibility.sh "$RUNNER_TEMP/ax-probe" "$bin/PopMac" "$bin/PopTestApp" \
+            "$(xcrun --find xctest)" "$toolchain/libexec/swift/pm/swiftpm-testing-helper"
+          "$RUNNER_TEMP/ax-probe"
+
+      - name: End-to-end tests
+        env:
+          POP_MAC_E2E: "1"
+        run: swift test --skip-build --filter PopE2ETests
