@@ -168,3 +168,19 @@ jobs:
           ditto -x -k PopMac.zip .
           PopMac.app/Contents/MacOS/PopMac --version
           PopMac.app/Contents/MacOS/PopMac --diagnose
+
+  sanitizers:
+    name: Tests with the ${{ matrix.sanitizer }} sanitizer
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, thread]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test
+        run: swift test --sanitize=${{ matrix.sanitizer }} --filter PopCoreTests
