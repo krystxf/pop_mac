@@ -61,8 +61,10 @@ The code has two parts:
 
 ## Releases
 
-Changes reach `main` through pull requests, and merging one makes a release
-of every pull request merged since the last release tag:
+Changes reach `main` through pull requests. When CI passes on `main` after a merge, the Release
+workflow releases every pull request merged since the last release tag. It builds the commit that
+CI tested, so nothing ships that fails a check, and a failing CI run on `main` stops the release
+until a fix merges.
 
 - The labels `release:major`, `release:minor`, and `release:patch` pick the part of the version to bump.
   When several pull requests go into one release, the highest bump wins.
