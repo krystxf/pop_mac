@@ -102,8 +102,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
 
     /// Floats a copy of the dragged tab under the mouse, and slides the other tabs out of its way.
     ///
-    /// The dragged tab stays behind as an empty slot. It takes the place after
-    /// every other tab whose center is left of the copy's center.
+    /// The dragged tab stays behind as an empty slot. It moves to the slot nearest to the copy.
     private func dragMoved(_ button: TabButton, to point: NSPoint) {
         // A rebuild of the bar during the drag removed the tab.
         guard tabsView.arrangedSubviews.contains(button) else { return }
@@ -121,7 +120,10 @@ final class StackTabBar: NSPanel, GlidingWindow {
         let x = tabsView.convert(point, from: nil).x - grabbed.offset
         let center = min(max(x, half), max(tabsView.bounds.width - half, half))
 
-        let index = tabsView.arrangedSubviews.filter { $0 !== button && $0.frame.midX < center }.count
+        // The tabs have equal widths, so the slots are one tab and one gap apart.
+        let pitch = button.frame.width + tabsView.spacing
+        let last = tabsView.arrangedSubviews.count - 1
+        let index = min(max(Int(((center - half) / pitch).rounded()), 0), last)
         if tabsView.arrangedSubviews.firstIndex(of: button) != index {
             // The tab stays in the view tree, so it keeps getting the drag's events.
             tabsView.removeArrangedSubview(button)
