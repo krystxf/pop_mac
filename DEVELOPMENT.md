@@ -65,7 +65,7 @@ Changes reach `main` through pull requests, and merging one makes a release:
 Builds take their version from the latest release tag. The version in `Resources/Info.plist` is only a fallback.
 
 The workflow reads these secrets from the `release` environment, which only `main` can use.
-It builds the app before it imports the certificate, so code that runs during the build cannot use it.
+It builds the app before it imports the certificate, and deletes the keychain right after signing.
 
 | Secret | Content |
 | --- | --- |
