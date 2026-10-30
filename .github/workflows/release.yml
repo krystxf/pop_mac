@@ -27,7 +27,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       pr: ${{ steps.version.outputs.pr }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -76,17 +76,24 @@ jobs:
     if: needs.plan.outputs.version != ''
     runs-on: macos-latest
     timeout-minutes: 45
+    # The secrets live in this environment, which only main can use.
+    environment: release
     permissions:
       contents: write
     env:
       VERSION: ${{ needs.plan.outputs.version }}
       PR_NUMBER: ${{ needs.plan.outputs.pr }}
     steps:
-      - uses: actions/checkout@v7
+      # Actions in this job see the secrets, so they are pinned to a commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Import the Developer ID certificate
+      # The build runs without the certificate, so build-time code cannot use it.
+      - name: Build
+        run: ./scripts/bundle.sh
+
+      - name: Sign with the Developer ID
         env:
           DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
           DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
@@ -105,10 +112,11 @@ jobs:
           # shellcheck disable=SC2046 # Each keychain path is one word.
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/developer-id.p12"
-          security find-identity -v -p codesigning "$keychain"
-
-      - name: Build and sign
-        run: SIGN_IDENTITY="Developer ID Application" ./scripts/bundle.sh
+          # The same flags as scripts/bundle.sh, with the secure timestamp that notarization requires.
+          codesign --force --deep --options runtime --timestamp --keychain "$keychain" --sign "Developer ID Application" build/PopMac.app
+          security delete-keychain "$keychain"
+          codesign --verify --deep --strict --verbose=2 build/PopMac.app
+          codesign --display --verbose=2 build/PopMac.app 2>&1 | grep -E "^(Authority|TeamIdentifier|Timestamp)="
 
       - name: Smoke test
         run: |
@@ -176,7 +184,7 @@ jobs:
           } > "$RUNNER_TEMP/notes.md"
           gh release create "v$VERSION" PopMac.zip --verify-tag --title "Pop Mac $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: krystxf/homebrew-tap
           ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
