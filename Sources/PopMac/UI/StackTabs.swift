@@ -11,6 +11,8 @@ final class StackTabBar: NSPanel, GlidingWindow {
     /// The copy of a tab dragged by its grip, which follows the mouse,
     /// with how far right of the tab's center the mouse grabbed it.
     private var grabbed: (ghost: TabGhost, offset: CGFloat)?
+    /// The bar's origin when the mouse began to drag the whole stack.
+    private var originBeforeDrag: NSPoint?
     var targetFrame: NSRect?
     var fadeGeneration = 0
     var isFadingOut = false
@@ -20,7 +22,8 @@ final class StackTabBar: NSPanel, GlidingWindow {
     var onDrag: ((DragPhase) -> Void)?
 
     enum DragPhase {
-        case moved
+        /// The mouse moved this far from where it went down, in screen points with y up.
+        case moved(CGVector)
         /// The drag ended, with the modifiers held at mouse-up.
         case ended(CGEventFlags)
     }
@@ -80,11 +83,11 @@ final class StackTabBar: NSPanel, GlidingWindow {
                 button.onClick = { [weak self] in self?.onSelect?(tab.id) }
                 button.onDragMoved = { [weak self, weak button] point in
                     guard let self, let button else { return }
-                    if button.isDraggedByGrip { dragMoved(button, to: point) } else { onDrag?(.moved) }
+                    if button.isDraggedByGrip { dragMoved(button, to: point) } else { stackDragMoved(button) }
                 }
                 button.onDragEnded = { [weak self, weak button] flags in
                     guard let self, let button else { return }
-                    if button.isDraggedByGrip { dragEnded(button, id: tab.id) } else { onDrag?(.ended(flags)) }
+                    if button.isDraggedByGrip { dragEnded(button, id: tab.id) } else { stackDragEnded(flags) }
                 }
                 tabsView.addArrangedSubview(button)
                 // A horizontal stack view does not stretch its views to its height.
@@ -94,8 +97,30 @@ final class StackTabBar: NSPanel, GlidingWindow {
         }
 
         self.window = window
-        appear(at: Displays.toCocoa(frame))
+        // While the mouse drags the stack, the bar stays under the mouse.
+        if originBeforeDrag == nil { appear(at: Displays.toCocoa(frame)) }
         order(.above, relativeTo: Int(window))
+    }
+
+    // MARK: - Moving the stack
+
+    /// Keeps the bar under the mouse while it drags the whole stack, and reports how far the mouse moved.
+    private func stackDragMoved(_ button: BarItem) {
+        guard let down = button.downPoint else { return }
+        let start = originBeforeDrag ?? frame.origin
+        originBeforeDrag = start
+        // The bar moves with the mouse, so the offset comes from screen points.
+        let mouse = NSEvent.mouseLocation
+        let offset = CGVector(dx: mouse.x - (start.x + down.x), dy: mouse.y - (start.y + down.y))
+        setFrameOrigin(NSPoint(x: start.x + offset.dx, y: start.y + offset.dy))
+        // The bar glides from here to its place after the drop.
+        targetFrame = frame
+        onDrag?(.moved(offset))
+    }
+
+    private func stackDragEnded(_ flags: CGEventFlags) {
+        originBeforeDrag = nil
+        onDrag?(.ended(flags))
     }
 
     // MARK: - Reordering

@@ -41,6 +41,9 @@ final class WindowManager {
     private var stacksScheduled = false
     /// When the drop preview of a dragged stack was last updated.
     private var stackPreviewTime = Date.distantPast
+    /// The stack that the mouse drags by its tab bar, with its selected window's
+    /// frame when the drag began and where the window is now.
+    private var stackDrag: (stack: StackNode, start: Rect, current: Rect)?
     /// Saved trees from before Pop Mac started, waiting for their Space to be visible.
     private var savedTrees: [SavedTree] = []
     private var layoutSaveScheduled = false
@@ -1048,7 +1051,7 @@ final class WindowManager {
         } onDrag: { [weak self] stack, phase in
             MainActor.assumeIsolated {
                 switch phase {
-                case .moved: self?.stackDragMoved(stack)
+                case let .moved(offset): self?.stackDragMoved(stack, offset: offset)
                 case let .ended(flags): self?.stackDragEnded(stack, flags: flags)
                 }
             }
@@ -1056,8 +1059,32 @@ final class WindowManager {
         scheduleHint()
     }
 
-    /// Shows where a stack that is dragged by its tab bar would land.
-    private func stackDragMoved(_ stack: StackNode) {
+    /// Moves a stack's selected window with the mouse that drags the stack's tab bar,
+    /// and shows where the stack would land.
+    ///
+    /// The other windows of the stack wait out of sight, so the old tile looks empty.
+    /// They come back with the selected window after the drop.
+    private func stackDragMoved(_ stack: StackNode, offset: CGVector) {
+        if stackDrag?.stack !== stack, let window = windows[stack.active],
+           let frame = Displays.onScreenFrame(of: stack.active) ?? window.frame
+        {
+            stackDrag = (stack, frame, frame)
+            for id in stack.entities where id != stack.active {
+                guard let other = windows[id], let hidden = hidingPlace(for: id) else { continue }
+                lastSet[id] = Date()
+                animator.animate(other, from: hidden, to: hidden, duration: 0) {}
+            }
+        }
+        if let drag = stackDrag, let window = windows[stack.active] {
+            // Screen points have y up, and window frames have y down.
+            var to = drag.start
+            to.x += offset.dx.rounded()
+            to.y -= offset.dy.rounded()
+            lastSet[stack.active] = Date()
+            animator.animate(window, from: drag.current, to: to, duration: 0) {}
+            stackDrag?.current = to
+        }
+
         // Finding the windows under the cursor asks every app for its frames. Keep it rare.
         guard let autoTiler, Date().timeIntervalSince(stackPreviewTime) > 0.05 else { return }
         stackPreviewTime = Date()
@@ -1078,10 +1105,19 @@ final class WindowManager {
     private func stackDragEnded(_ stack: StackNode, flags: CGEventFlags) {
         overlay.hide()
         stackPreviewTime = .distantPast
+        stackDrag = nil
         let cursor = Displays.cursor
-        guard let autoTiler, let display = Displays.display(at: cursor, in: displays) else { return }
+        guard let autoTiler else { return }
+        guard let display = Displays.display(at: cursor, in: displays) else {
+            // The windows moved with the mouse, so they go back to their tiles.
+            autoTiler.reflow(stack.active)
+            scheduleStacksRefresh()
+            return
+        }
         autoTiler.onDrop(stack, cursor: cursor, key: currentKey(of: display), merge: holdsSuper(flags))
         activate(stack.active, moveCursor: false)
+        // The bar glides back from the mouse, even when the stack keeps its tile.
+        scheduleStacksRefresh()
     }
 
     /// True if exactly the Super modifiers are held in `flags`.
