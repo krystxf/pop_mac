@@ -44,30 +44,13 @@ jobs:
             exit 0
           fi
           LABELS="$(gh pr view "$PR_NUMBER" --json labels --jq '[.labels[].name] | join(" ")')"
-          case " $LABELS " in
-            *" no-release "*)
-              echo "Pull request #$PR_NUMBER is labeled no-release. No release."
-              exit 0
-              ;;
-            *" release:major "*) bump="major" ;;
-            *" release:minor "*) bump="minor" ;;
-            *" release:patch "*) bump="patch" ;;
-            *)
-              if gh pr view "$PR_NUMBER" --json files --jq '.files[].path' | grep -qvE '\.md$|^docs/|^\.github/'; then
-                bump="patch"
-              else
-                echo "The pull request changes only docs or workflows. No release."
-                exit 0
-              fi
-              ;;
-          esac
+          bump="$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path' | ./scripts/release-bump.sh "$LABELS")"
+          if [ "$bump" = none ]; then
+            echo "Pull request #$PR_NUMBER makes no release: it is labeled no-release, or changes only docs or workflows."
+            exit 0
+          fi
           last="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
-          IFS=. read -r major minor patch <<< "${last#v}"
-          case "$bump" in
-            major) version="$((major + 1)).0.0" ;;
-            minor) version="$major.$((minor + 1)).0" ;;
-            patch) version="$major.$minor.$((patch + 1))" ;;
-          esac
+          version="$(./scripts/next-version.sh "$last" "$bump")"
           echo "Releasing $version, a $bump release after $last."
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "pr=$PR_NUMBER" >> "$GITHUB_OUTPUT"
@@ -164,10 +147,7 @@ jobs:
           PR_BODY="$(gh pr view "$PR_NUMBER" --json body --jq .body)"
           PR_TITLE="$(gh pr view "$PR_NUMBER" --json title --jq .title)"
           PR_URL="$(gh pr view "$PR_NUMBER" --json url --jq .url)"
-          # The "Release notes" section of the pull request, without its comments.
-          notes="$(printf '%s\n' "$PR_BODY" | tr -d '\r' \
-            | awk '/^## Release notes/ { take = 1; next } /^## / { take = 0 } take' \
-            | sed '/<!--/,/-->/d' | sed '/^-[[:space:]]*$/d' | sed '/^[[:space:]]*$/d')"
+          notes="$(printf '%s\n' "$PR_BODY" | ./scripts/release-notes.sh)"
           if [ -z "$notes" ]; then notes="- $PR_TITLE"; fi
           {
             echo "Install or update with Homebrew:"

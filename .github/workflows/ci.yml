@@ -58,6 +58,9 @@ jobs:
       - name: actionlint
         run: actionlint -color
 
+      - name: Release scripts
+        run: ./scripts/test-release-scripts.sh
+
   build:
     name: Build and test
     runs-on: macos-latest
