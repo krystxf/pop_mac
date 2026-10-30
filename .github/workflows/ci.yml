@@ -118,6 +118,21 @@ jobs:
           build/PopMac.app/Contents/MacOS/PopMac --version
           build/PopMac.app/Contents/MacOS/PopMac --diagnose
 
+      # Homebrew checks casks only inside a tap, so the cask goes into a throwaway one,
+      # with a placeholder version and checksum.
+      - name: Check the Homebrew cask
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_FROM_API: "1"
+        run: |
+          brew tap-new --no-git popmac/check
+          tap="$(brew --repository popmac/check)"
+          mkdir -p "$tap/Casks"
+          sed -e "s/@VERSION@/0.0.0/" -e "s/@SHA256@/$(printf '0%.0s' {1..64})/" packaging/homebrew/pop-mac.rb > "$tap/Casks/pop-mac.rb"
+          if brew commands | grep -qx trust; then brew trust popmac/check; fi
+          brew style --cask popmac/check/pop-mac
+          brew audit --cask --strict popmac/check/pop-mac
+
       - name: Package app
         run: ditto -c -k --keepParent build/PopMac.app PopMac.zip
 
