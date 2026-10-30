@@ -144,3 +144,27 @@ jobs:
           name: PopMac
           path: PopMac.zip
           if-no-files-found: error
+
+  # Launches the app from the build job on older macOS, which catches APIs and
+  # private symbols that are missing there. The build needs the newest Xcode,
+  # which runs only on the newest macOS. Remove macos-14 when GitHub retires it.
+  older-macos:
+    name: Smoke test (${{ matrix.runner }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-14]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: PopMac
+
+      - name: Smoke test
+        run: |
+          sw_vers
+          ditto -x -k PopMac.zip .
+          PopMac.app/Contents/MacOS/PopMac --version
+          PopMac.app/Contents/MacOS/PopMac --diagnose
