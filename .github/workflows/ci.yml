@@ -78,6 +78,9 @@ jobs:
       - name: Release scripts
         run: ./scripts/test-release-scripts.sh
 
+      - name: Doc links
+        run: python3 scripts/check-links.py
+
   build:
     name: Build and test
     runs-on: macos-latest
