@@ -118,6 +118,9 @@ jobs:
           build/PopMac.app/Contents/MacOS/PopMac --version
           build/PopMac.app/Contents/MacOS/PopMac --diagnose
 
+      - name: Check the minimum macOS
+        run: ./scripts/check-min-macos.sh
+
       # Homebrew checks casks only inside a tap, so the cask goes into a throwaway one,
       # with a placeholder version and checksum.
       - name: Check the Homebrew cask
