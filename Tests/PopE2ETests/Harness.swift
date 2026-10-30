@@ -17,13 +17,6 @@ enum E2E {
 
     private final class Marker {}
 
-    /// The work area of the main display, in top-left-origin coordinates, as Pop Mac sees it.
-    static var workArea: Rect {
-        let screen = NSScreen.screens[0]
-        let area = screen.visibleFrame
-        return Rect(area.minX, screen.frame.height - area.maxY, area.width, area.height)
-    }
-
     /// A window's frame as the window server sees it.
     static func frame(of window: TestWindow) -> Rect? {
         guard let entry = (CGWindowListCopyWindowInfo([.optionIncludingWindow], window.id) as? [[String: Any]])?.first,
@@ -96,6 +89,22 @@ final class TestApp {
 
     /// The title of the key window, or "-".
     func keyWindow() throws -> String { try send("key") }
+
+    /// The size of a window's content, without its title bar.
+    func contentSize(of window: TestWindow) throws -> Size {
+        let numbers = try send("size \(window.title)").split(separator: " ").compactMap { Double($0) }
+        return try Size(width: #require(numbers.first), height: #require(numbers.last))
+    }
+
+    /// The work area of the main display, in top-left-origin coordinates, as Pop Mac sees it.
+    ///
+    /// The test app answers, because it runs an event loop and sees changes, such as the
+    /// Dock settling. The test process has no event loop, so its screens go stale.
+    func workArea() throws -> Rect {
+        let numbers = try send("area").split(separator: " ").compactMap { Double($0) }
+        try #require(numbers.count == 4, "The test app did not answer with a work area")
+        return Rect(numbers[0], numbers[1], numbers[2], numbers[3])
+    }
 
     @discardableResult
     private func send(_ command: String) throws -> String {

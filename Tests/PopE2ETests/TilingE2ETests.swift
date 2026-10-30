@@ -7,11 +7,10 @@ import Testing
 /// Run with `make e2e`. See `E2E` for what the tests need.
 @Suite(.serialized, .enabled(if: E2E.enabled, "Set POP_MAC_E2E=1 to run the end-to-end tests"))
 struct TilingE2ETests {
-    let area = E2E.workArea
-
     @Test func newWindowsSplitTheFocusedWindow() async throws {
         let session = try Session()
         defer { session.close() }
+        let area = try session.app.workArea()
         try session.startPopMac()
 
         let a = try session.app.open("A")
@@ -29,6 +28,7 @@ struct TilingE2ETests {
     @Test func windowsOpenBeforeTheStartGetTiled() async throws {
         let session = try Session()
         defer { session.close() }
+        let area = try session.app.workArea()
         let a = try session.app.open("A")
         let b = try session.app.open("B")
 
@@ -39,6 +39,7 @@ struct TilingE2ETests {
     @Test func closingAWindowGivesItsTileBack() async throws {
         let session = try Session()
         defer { session.close() }
+        let area = try session.app.workArea()
         try session.startPopMac()
         let a = try session.app.open("A")
         let b = try session.app.open("B")
@@ -51,6 +52,7 @@ struct TilingE2ETests {
     @Test func superArrowsMoveTheFocus() async throws {
         let session = try Session()
         defer { session.close() }
+        let area = try session.app.workArea()
         try session.startPopMac()
         let a = try session.app.open("A")
         let b = try session.app.open("B")
@@ -66,6 +68,7 @@ struct TilingE2ETests {
     @Test func toggleFloatingReturnsTheTile() async throws {
         let session = try Session()
         defer { session.close() }
+        let area = try session.app.workArea()
         try session.startPopMac()
         let a = try session.app.open("A")
         let b = try session.app.open("B")
@@ -75,8 +78,10 @@ struct TilingE2ETests {
         // B floats at its size from before tiling, and A takes the whole area.
         Keys.superPress(Keys.g)
         try await session.expectFrames([a: area])
-        let floating = try #require(E2E.frame(of: b))
-        #expect(floating.width == 400 && floating.height == 300)
+        // The test app opened B with 400 × 300 points of content. The title bar comes on top.
+        let restored = try await waitUntil(timeout: .seconds(5)) { try session.app.contentSize(of: b) == Size(width: 400, height: 300) }
+        let size = try session.app.contentSize(of: b)
+        #expect(restored, "B floats with \(size.width) × \(size.height) points of content, not 400 × 300")
 
         Keys.superPress(Keys.g)
         try await session.expectFrames([a: area.half(.left), b: area.half(.right)])
@@ -85,6 +90,7 @@ struct TilingE2ETests {
     @Test func toggleOrientationStacksTheWindows() async throws {
         let session = try Session()
         defer { session.close() }
+        let area = try session.app.workArea()
         try session.startPopMac()
         let a = try session.app.open("A")
         let b = try session.app.open("B")
@@ -98,6 +104,7 @@ struct TilingE2ETests {
     @Test func restartKeepsTheLayout() async throws {
         let session = try Session()
         defer { session.close() }
+        let area = try session.app.workArea()
         try session.startPopMac()
         let a = try session.app.open("A")
         let b = try session.app.open("B")

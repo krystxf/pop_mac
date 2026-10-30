@@ -9,6 +9,9 @@ import AppKit
 //     focus <title>            makes the app active and the window key
 //     key                      answers the title of the key window, or "-"
 //     move <title> x y w h     sets a frame, in top-left-origin coordinates
+//     size <title>             answers the size of the window's content: w h
+//     area                     answers the work area of the main display: x y w h,
+//                              in top-left-origin coordinates
 //
 // The app quits when stdin closes, so it never outlives the test.
 
@@ -49,6 +52,14 @@ final class TestApp {
             return "ok"
         case "key":
             return NSApp.keyWindow?.title ?? "-"
+        case "size":
+            guard let window = windows[title] else { return "error: no window \(title)" }
+            let content = window.contentRect(forFrameRect: window.frame)
+            return "\(content.width) \(content.height)"
+        case "area":
+            // This app runs an event loop, so its screens are current, unlike the test process's.
+            let area = screen.visibleFrame
+            return "\(area.minX) \(screen.frame.height - area.maxY) \(area.width) \(area.height)"
         case "move":
             guard let window = windows[title] else { return "error: no window \(title)" }
             let numbers = words.dropFirst(2).compactMap(Double.init)
