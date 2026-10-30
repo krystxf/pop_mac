@@ -35,8 +35,10 @@ swift scripts/make-icon.swift   # redraw Resources/AppIcon.icns
 POP_MAC_SNAPSHOT_DIR=/tmp/shots build/PopMac.app/Contents/MacOS/PopMac   # save images of the settings pages
 ```
 
-`make prod` installs the Homebrew release as **Pop Mac Prod** in `~/Applications`, next to your development build.
+`make prod` installs the latest release as **Pop Mac Prod** in `~/Applications`, next to your development build.
 Only one copy can manage windows, so starting a build quits the other one. Pop Mac Prod needs its own Accessibility access.
+It is signed again with the Developer ID certificate in your keychain, if there is one, so the access stays across updates.
+It installs only a release that Apple notarized and that the Pop Mac team signed, so it never signs someone else's app.
 
 CI runs on every push and pull request. It checks the formatting with SwiftFormat, lints the
 shell script and the workflow, builds with warnings as errors, runs the tests, and builds the app
@@ -46,6 +48,33 @@ The code has two parts:
 
 - `Sources/PopCore` is the tiling engine without any AppKit code. It ports Pop Shell's `fork.ts`, `forest.ts`, `auto_tiler.ts`, `focus.ts`, and parts of `tiling.ts`. The tests in `Tests/PopCoreTests` cover it.
 - `Sources/PopMac` is the macOS app. It reads and moves windows through the Accessibility API, catches key bindings with a keyboard event tap, and draws the overlay, active hint, stack tabs, and launcher with AppKit.
+
+## Releases
+
+Changes reach `main` through pull requests, and merging one makes a release:
+
+- The labels `release:major`, `release:minor`, and `release:patch` pick the part of the version to bump.
+  Without a label, a change to code makes a patch release, and a change to docs or workflows only makes none.
+  The label `no-release` skips the release.
+- The "Release notes" section of the pull request becomes the notes of the release.
+- The Release workflow builds the app and signs it with the Developer ID. It notarizes and staples it,
+  tags the merge commit, and publishes the GitHub release with `PopMac.zip`.
+  Then it updates the cask in [krystxf/homebrew-tap](https://github.com/krystxf/homebrew-tap)
+  from `packaging/homebrew/pop-mac.rb`.
+
+Builds take their version from the latest release tag. The version in `Resources/Info.plist` is only a fallback.
+
+The workflow reads these secrets from the `release` environment, which only `main` can use.
+It builds the app before it imports the certificate, and deletes the keychain right after signing.
+
+| Secret | Content |
+| --- | --- |
+| `DEVELOPER_ID_P12` | The Developer ID Application certificate with its private key, as a base64-encoded `.p12` file |
+| `DEVELOPER_ID_P12_PASSWORD` | The password of the `.p12` file |
+| `NOTARY_KEY` | The App Store Connect API key (`.p8` file) that notarizes the app |
+| `NOTARY_KEY_ID` | The ID of that key |
+| `NOTARY_ISSUER_ID` | The issuer ID of that key |
+| `TAP_DEPLOY_KEY` | The private SSH key of a deploy key with write access to `krystxf/homebrew-tap` |
 
 ## License
 

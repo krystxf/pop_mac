@@ -13,9 +13,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# The tools are checked against these checksums before they run.
 env:
   SWIFTFORMAT_VERSION: 0.64.1
+  SWIFTFORMAT_SHA256: a291dd7e1e563562565ca18193da0c1aa0578b45973335d827e214b2d2d769ec
   ACTIONLINT_VERSION: 1.7.12
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 
 jobs:
   lint:
@@ -23,12 +26,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install SwiftFormat
         run: |
           curl -fsSL -o swiftformat.zip \
             "https://github.com/nicklockwood/SwiftFormat/releases/download/${SWIFTFORMAT_VERSION}/swiftformat_linux.zip"
+          echo "$SWIFTFORMAT_SHA256  swiftformat.zip" | sha256sum --check --strict
           unzip -q swiftformat.zip -d "$RUNNER_TEMP/swiftformat"
           rm swiftformat.zip
           chmod +x "$RUNNER_TEMP"/swiftformat/swiftformat_linux
@@ -42,8 +48,11 @@ jobs:
 
       - name: Install actionlint
         run: |
-          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C "$RUNNER_TEMP" actionlint
+          curl -fsSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "$ACTIONLINT_SHA256  actionlint.tar.gz" | sha256sum --check --strict
+          tar -xzf actionlint.tar.gz -C "$RUNNER_TEMP" actionlint
+          rm actionlint.tar.gz
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
       - name: actionlint
@@ -54,7 +63,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Toolchain
         run: |
@@ -87,7 +98,7 @@ jobs:
       - name: Package app
         run: ditto -c -k --keepParent build/PopMac.app PopMac.zip
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: PopMac
           path: PopMac.zip
