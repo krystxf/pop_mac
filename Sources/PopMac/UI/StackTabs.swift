@@ -3,19 +3,16 @@ import PopCore
 
 /// The tab bar drawn above a stack of windows.
 ///
-/// A click on a tab focuses its window, and a drag moves the tab to another
-/// position. A drag of the handle at the right end moves the whole stack.
+/// A click on a tab focuses its window. A drag of the grip at a tab's right
+/// end moves the tab to another position. A drag of the rest moves the whole stack.
 /// The bar glides along when its stack moves.
 final class StackTabBar: NSPanel, GlidingWindow {
-    /// The tabs, and the handle after them.
-    private let barView = NSStackView()
     private let tabsView = NSStackView()
-    private let handle = BarItem(tint: nil)
     var targetFrame: NSRect?
     var fadeGeneration = 0
     var isFadingOut = false
     var onSelect: ((WindowID) -> Void)?
-    /// Called when a dragged tab was dropped, with its new index.
+    /// Called when a tab dragged by its grip was dropped, with its new index.
     var onReorder: ((WindowID, Int) -> Void)?
     var onDrag: ((DragPhase) -> Void)?
 
@@ -51,38 +48,15 @@ final class StackTabBar: NSPanel, GlidingWindow {
         tabsView.orientation = .horizontal
         tabsView.distribution = .fillEqually
         tabsView.spacing = 4
-
-        let grip = NSImageView(image: NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: "Move stack") ?? NSImage())
-        grip.symbolConfiguration = .init(pointSize: 10, weight: .semibold)
-        grip.contentTintColor = .secondaryLabelColor
-        grip.translatesAutoresizingMaskIntoConstraints = false
-        handle.body.addSubview(grip)
-        handle.toolTip = "Drag to move the stack"
-        NSLayoutConstraint.activate([
-            grip.centerXAnchor.constraint(equalTo: handle.body.centerXAnchor),
-            grip.centerYAnchor.constraint(equalTo: handle.body.centerYAnchor),
-            handle.widthAnchor.constraint(equalToConstant: 30),
-        ])
-        handle.onDragMoved = { [weak self] _ in self?.onDrag?(.moved) }
-        handle.onDragEnded = { [weak self] flags in self?.onDrag?(.ended(flags)) }
-
-        barView.orientation = .horizontal
-        barView.distribution = .fill
-        barView.spacing = 4
-        barView.edgeInsets = NSEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
-        for view in [tabsView, handle] {
-            barView.addArrangedSubview(view)
-            // A horizontal stack view does not stretch its views to its height.
-            view.heightAnchor.constraint(equalTo: barView.heightAnchor, constant: -2).isActive = true
-        }
+        tabsView.edgeInsets = NSEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
         if #available(macOS 26, *) {
             // The tabs' glass blends where they meet, like one bar.
             let container = NSGlassEffectContainerView()
             container.spacing = 6
-            container.contentView = barView
+            container.contentView = tabsView
             contentView = container
         } else {
-            contentView = barView
+            contentView = tabsView
         }
     }
 
@@ -100,15 +74,21 @@ final class StackTabBar: NSPanel, GlidingWindow {
                 let button = TabButton(tab: tab, isActive: tab.id == active, color: color)
                 button.onClick = { [weak self] in self?.onSelect?(tab.id) }
                 button.onDragMoved = { [weak self, weak button] point in
-                    if let self, let button { dragMoved(button, to: point) }
+                    guard let self, let button else { return }
+                    if button.isDraggedByGrip { dragMoved(button, to: point) } else { onDrag?(.moved) }
                 }
-                button.onDragEnded = { [weak self, weak button] _ in
-                    if let self, let button, let index = tabsView.arrangedSubviews.firstIndex(of: button) {
+                button.onDragEnded = { [weak self, weak button] flags in
+                    guard let self, let button else { return }
+                    if !button.isDraggedByGrip {
+                        onDrag?(.ended(flags))
+                    } else if let index = tabsView.arrangedSubviews.firstIndex(of: button) {
                         onReorder?(tab.id, index)
                     }
                 }
                 tabsView.addArrangedSubview(button)
-                button.heightAnchor.constraint(equalTo: tabsView.heightAnchor).isActive = true
+                // A horizontal stack view does not stretch its views to its height.
+                let insets = tabsView.edgeInsets.top + tabsView.edgeInsets.bottom
+                button.heightAnchor.constraint(equalTo: tabsView.heightAnchor, constant: -insets).isActive = true
             }
         }
 
@@ -214,6 +194,11 @@ private class BarItem: NSView {
 }
 
 private final class TabButton: BarItem {
+    /// The dots at the tab's right end, which drag the tab along the bar.
+    private let grip = NSImageView()
+    /// True while a drag that began on the grip lasts.
+    private(set) var isDraggedByGrip = false
+
     init(tab: StackTabBar.Tab, isActive: Bool, color: NSColor) {
         super.init(tint: isActive ? color : nil)
 
@@ -236,17 +221,33 @@ private final class TabButton: BarItem {
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyUpOrDown
 
+        grip.image = NSImage(systemSymbolName: "circle.grid.3x3.fill", accessibilityDescription: "Reorder tab")
+        grip.symbolConfiguration = .init(pointSize: 8, weight: .regular)
+        grip.contentTintColor = textColor.withAlphaComponent(0.6)
+        grip.translatesAutoresizingMaskIntoConstraints = false
+        grip.toolTip = "Drag to reorder the tab"
+
         body.addSubview(icon)
         body.addSubview(label)
+        body.addSubview(grip)
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 8),
             icon.centerYAnchor.constraint(equalTo: body.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 14),
             icon.heightAnchor.constraint(equalToConstant: 14),
             label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 4),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: body.trailingAnchor, constant: -8),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: grip.leadingAnchor, constant: -4),
             label.centerYAnchor.constraint(equalTo: body.centerYAnchor),
+            grip.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -8),
+            grip.centerYAnchor.constraint(equalTo: body.centerYAnchor),
         ])
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // The grip takes the tab's end, from a little left of its dots, so it is easy to hit.
+        let point = convert(event.locationInWindow, from: nil)
+        isDraggedByGrip = point.x >= grip.convert(grip.bounds, to: self).minX - 4
+        super.mouseDown(with: event)
     }
 
     required init?(coder _: NSCoder) { nil }

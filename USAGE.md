@@ -8,7 +8,7 @@
 | New windows split the previously focused window | Same |
 | Directional focus with Super + arrows / hjkl | Same |
 | Tile mode (Super + Return): move, resize, swap, orientation, stacking | Same, including the grid overlay for floating windows |
-| Stacking (Super + S) with a tab bar | Same. Click a tab, or press Super + Tab and Super + Shift + Tab, to switch tabs. Drag a tab to change the order of the tabs. Drag the handle at the right end of the bar to move the whole stack. |
+| Stacking (Super + S) with a tab bar | Same. Click a tab, or press Super + Tab and Super + Shift + Tab, to switch tabs. Drag the dots at the right end of a tab to change the order of the tabs. Drag the rest of a tab to move the whole stack. |
 | Drag a tiled window to re-tile it, with a drop preview | Drop on an edge of a window to split its tile. Drop on its center to swap the two windows, or hold Super at the drop to stack them. The preview says "Switch windows" or "Stack window". |
 | Resize a tiled window with the mouse | Same. The neighbors follow. |
 | Toggle floating (Super + G), floating window exceptions | Same. Every standard window tiles, unless you float it with Super + G or a rule in `floatRules` matches it. |
