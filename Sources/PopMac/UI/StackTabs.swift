@@ -8,6 +8,9 @@ import PopCore
 /// The bar glides along when its stack moves.
 final class StackTabBar: NSPanel, GlidingWindow {
     private let tabsView = NSStackView()
+    /// The tab that follows the mouse while it is dragged by its grip,
+    /// with how far right of the tab's center the mouse grabbed it.
+    private var grabbed: (button: BarItem, offset: CGFloat)?
     var targetFrame: NSRect?
     var fadeGeneration = 0
     var isFadingOut = false
@@ -49,6 +52,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
         tabsView.distribution = .fillEqually
         tabsView.spacing = 4
         tabsView.edgeInsets = NSEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
+        tabsView.wantsLayer = true
         if #available(macOS 26, *) {
             // The tabs' glass blends where they meet, like one bar.
             let container = NSGlassEffectContainerView()
@@ -79,11 +83,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
                 }
                 button.onDragEnded = { [weak self, weak button] flags in
                     guard let self, let button else { return }
-                    if !button.isDraggedByGrip {
-                        onDrag?(.ended(flags))
-                    } else if let index = tabsView.arrangedSubviews.firstIndex(of: button) {
-                        onReorder?(tab.id, index)
-                    }
+                    if button.isDraggedByGrip { dragEnded(button, id: tab.id) } else { onDrag?(.ended(flags)) }
                 }
                 tabsView.addArrangedSubview(button)
                 // A horizontal stack view does not stretch its views to its height.
@@ -97,17 +97,56 @@ final class StackTabBar: NSPanel, GlidingWindow {
         order(.above, relativeTo: Int(window))
     }
 
-    /// Moves the dragged tab to the place under the mouse.
+    // MARK: - Reordering
+
+    /// Lifts the dragged tab, keeps it under the mouse, and slides the other tabs out of its way.
     ///
-    /// The tab takes the place after every other tab whose center is left of the mouse.
-    private func dragMoved(_ button: NSView, to point: NSPoint) {
-        let x = tabsView.convert(point, from: nil).x
-        let index = tabsView.arrangedSubviews.filter { $0 !== button && $0.frame.midX < x }.count
-        guard tabsView.arrangedSubviews.firstIndex(of: button) != index else { return }
-        // The tab stays in the view tree, so it keeps getting the drag's events.
-        tabsView.removeArrangedSubview(button)
-        tabsView.insertArrangedSubview(button, at: index)
-        tabsView.layoutSubtreeIfNeeded()
+    /// The tab takes the place after every other tab whose center is left of its own.
+    private func dragMoved(_ button: BarItem, to point: NSPoint) {
+        if grabbed == nil {
+            let down = tabsView.convert(button.downPoint ?? point, from: nil)
+            grabbed = (button, down.x - button.frame.midX)
+        }
+        // The tab stays inside the bar.
+        let half = button.frame.width / 2
+        let x = tabsView.convert(point, from: nil).x - (grabbed?.offset ?? 0)
+        let center = min(max(x, half), max(tabsView.bounds.width - half, half))
+
+        let others = tabsView.arrangedSubviews.filter { $0 !== button }
+        let index = others.filter { $0.frame.midX < center }.count
+        if tabsView.arrangedSubviews.firstIndex(of: button) != index {
+            let before = others.map(\.frame.minX)
+            // A lifted tab would get a wrong frame from the layout.
+            button.lift(by: nil)
+            // The tab stays in the view tree, so it keeps getting the drag's events.
+            tabsView.removeArrangedSubview(button)
+            tabsView.insertArrangedSubview(button, at: index)
+            tabsView.layoutSubtreeIfNeeded()
+            for (view, minX) in zip(others, before) where view.frame.minX != minX {
+                slide(view, from: minX - view.frame.minX)
+            }
+        }
+        button.lift(by: center - button.frame.midX)
+    }
+
+    /// Settles the dropped tab into its place, then reports its new index.
+    private func dragEnded(_ button: BarItem, id: WindowID) {
+        grabbed = nil
+        guard let index = tabsView.arrangedSubviews.firstIndex(of: button) else { return }
+        // The model changes after the animation, because the change rebuilds the tabs.
+        button.settle { [weak self] in self?.onReorder?(id, index) }
+    }
+
+    /// Animates a tab that moved to its new place from `distance` away.
+    private func slide(_ view: NSView, from distance: CGFloat) {
+        let animation = CABasicAnimation(keyPath: "transform.translation.x")
+        animation.fromValue = distance
+        animation.toValue = 0
+        // Additive, so a tab that slides again starts from where it is.
+        animation.isAdditive = true
+        animation.duration = 0.2
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        view.layer?.add(animation, forKey: nil)
     }
 }
 
@@ -120,7 +159,8 @@ private class BarItem: NSView {
     var onDragEnded: ((CGEventFlags) -> Void)?
     /// The view that holds the item's content.
     private(set) var body: NSView!
-    private var downPoint: NSPoint?
+    /// Where the mouse went down, in window coordinates.
+    private(set) var downPoint: NSPoint?
     private var isDragging = false
     private var glass: NSView?
 
@@ -128,6 +168,7 @@ private class BarItem: NSView {
     init(tint: NSColor?) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
         if #available(macOS 26, *) {
             let glass = NSGlassEffectView()
             self.glass = glass
@@ -158,6 +199,63 @@ private class BarItem: NSView {
         if #available(macOS 26, *), let glass = glass as? NSGlassEffectView {
             glass.cornerRadius = bounds.height / 2
         }
+    }
+
+    // MARK: - Lifting
+
+    /// Draws the item raised, with a shadow, and moved right by `offset`. Nil puts it back in its place.
+    func lift(by offset: CGFloat?) {
+        guard let layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let offset {
+            layer.transform = lifted(by: offset)
+            layer.zPosition = 1
+            let radius = glass == nil ? 6 : bounds.height / 2
+            layer.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            layer.shadowColor = NSColor.black.cgColor
+            layer.shadowOffset = .zero
+            layer.shadowRadius = 3
+            layer.shadowOpacity = 0.35
+        } else {
+            layer.transform = CATransform3DIdentity
+            layer.zPosition = 0
+            layer.shadowOpacity = 0
+        }
+        CATransaction.commit()
+    }
+
+    /// Animates a lifted item back into its place, then calls `completion`.
+    func settle(completion: @escaping () -> Void) {
+        guard let layer else { return completion() }
+        let transform = CABasicAnimation(keyPath: "transform")
+        transform.fromValue = layer.presentation()?.transform ?? layer.transform
+        transform.toValue = CATransform3DIdentity
+        let shadow = CABasicAnimation(keyPath: "shadowOpacity")
+        shadow.fromValue = layer.shadowOpacity
+        shadow.toValue = 0
+        let group = CAAnimationGroup()
+        group.animations = [transform, shadow]
+        group.duration = 0.15
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock(completion)
+        lift(by: nil)
+        layer.add(group, forKey: "settle")
+        CATransaction.commit()
+    }
+
+    /// Scales the item up around its center, and moves it right by `offset`.
+    private func lifted(by offset: CGFloat) -> CATransform3D {
+        guard let layer else { return CATransform3DIdentity }
+        let scale = 1.06
+        // The transform works around the layer's anchor point, so move the center there first.
+        let dx = (0.5 - layer.anchorPoint.x) * bounds.width
+        let dy = (0.5 - layer.anchorPoint.y) * bounds.height
+        var transform = CATransform3DMakeTranslation(offset + dx, dy, 0)
+        transform = CATransform3DScale(transform, scale, scale, 1)
+        return CATransform3DTranslate(transform, -dx, -dy, 0)
     }
 
     /// The item takes every click inside it, so its content and glass never swallow one.
