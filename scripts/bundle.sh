@@ -41,7 +41,8 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 IDENTITY="${SIGN_IDENTITY:-$(security find-identity -p codesigning -v 2>/dev/null | awk '/"Apple Development/ { print $2; exit }')}"
 SIGN_FLAGS=(--force --deep --options runtime)
-if [[ "$IDENTITY" == *"Developer ID"* ]]; then
+# IDENTITY is a name or a SHA-1 hash, so the keychain tells whether it is a Developer ID.
+if [[ -n "$IDENTITY" ]] && security find-identity -v -p codesigning 2> /dev/null | grep -F -- "$IDENTITY" | grep -q '"Developer ID Application'; then
     SIGN_FLAGS+=(--timestamp)
 fi
 codesign "${SIGN_FLAGS[@]}" --sign "${IDENTITY:--}" "$APP"
