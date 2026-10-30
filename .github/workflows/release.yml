@@ -30,6 +30,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # The token stays out of .git/config, where the build could read it.
+          persist-credentials: false
 
       - name: Pick the version
         id: version
@@ -88,6 +90,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # The token stays out of .git/config, where the build could read it.
+          persist-credentials: false
 
       # The build runs without the certificate, so build-time code cannot use it.
       - name: Build
@@ -144,11 +148,14 @@ jobs:
           ditto -c -k --keepParent build/PopMac.app PopMac.zip
 
       - name: Tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "Pop Mac $VERSION"
-          git push origin "v$VERSION"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push origin "v$VERSION"
 
       - name: Publish the release
         env:
