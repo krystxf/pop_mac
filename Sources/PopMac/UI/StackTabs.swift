@@ -8,9 +8,9 @@ import PopCore
 /// The bar glides along when its stack moves.
 final class StackTabBar: NSPanel, GlidingWindow {
     private let tabsView = NSStackView()
-    /// The tab that follows the mouse while it is dragged by its grip,
+    /// The copy of a tab dragged by its grip, which follows the mouse,
     /// with how far right of the tab's center the mouse grabbed it.
-    private var grabbed: (button: BarItem, offset: CGFloat)?
+    private var grabbed: (ghost: TabGhost, offset: CGFloat)?
     var targetFrame: NSRect?
     var fadeGeneration = 0
     var isFadingOut = false
@@ -70,6 +70,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
     func update(tabs: [Tab], active: WindowID, color: NSColor, frame: Rect, above window: WindowID) {
         if shown?.tabs != tabs || shown?.active != active || shown?.color != color {
             shown = (tabs, active, color)
+            dropGhost()
             for view in tabsView.arrangedSubviews {
                 tabsView.removeArrangedSubview(view)
                 view.removeFromSuperview()
@@ -99,54 +100,70 @@ final class StackTabBar: NSPanel, GlidingWindow {
 
     // MARK: - Reordering
 
-    /// Lifts the dragged tab, keeps it under the mouse, and slides the other tabs out of its way.
+    /// Floats a copy of the dragged tab under the mouse, and slides the other tabs out of its way.
     ///
-    /// The tab takes the place after every other tab whose center is left of its own.
-    private func dragMoved(_ button: BarItem, to point: NSPoint) {
+    /// The dragged tab stays behind as an empty slot. It takes the place after
+    /// every other tab whose center is left of the copy's center.
+    private func dragMoved(_ button: TabButton, to point: NSPoint) {
+        // A rebuild of the bar during the drag removed the tab.
+        guard tabsView.arrangedSubviews.contains(button) else { return }
         if grabbed == nil {
             let down = tabsView.convert(button.downPoint ?? point, from: nil)
-            grabbed = (button, down.x - button.frame.midX)
+            let ghost = TabGhost(showing: button.copy())
+            addChildWindow(ghost, ordered: .above)
+            grabbed = (ghost, down.x - button.frame.midX)
+            button.isPlaceholder = true
         }
-        // The tab stays inside the bar.
+        guard let grabbed else { return }
+
+        // The copy stays inside the bar.
         let half = button.frame.width / 2
-        let x = tabsView.convert(point, from: nil).x - (grabbed?.offset ?? 0)
+        let x = tabsView.convert(point, from: nil).x - grabbed.offset
         let center = min(max(x, half), max(tabsView.bounds.width - half, half))
 
-        let others = tabsView.arrangedSubviews.filter { $0 !== button }
-        let index = others.filter { $0.frame.midX < center }.count
+        let index = tabsView.arrangedSubviews.filter { $0 !== button && $0.frame.midX < center }.count
         if tabsView.arrangedSubviews.firstIndex(of: button) != index {
-            let before = others.map(\.frame.minX)
-            // A lifted tab would get a wrong frame from the layout.
-            button.lift(by: nil)
             // The tab stays in the view tree, so it keeps getting the drag's events.
             tabsView.removeArrangedSubview(button)
             tabsView.insertArrangedSubview(button, at: index)
-            tabsView.layoutSubtreeIfNeeded()
-            for (view, minX) in zip(others, before) where view.frame.minX != minX {
-                slide(view, from: minX - view.frame.minX)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.allowsImplicitAnimation = true
+                tabsView.layoutSubtreeIfNeeded()
             }
         }
-        button.lift(by: center - button.frame.midX)
+
+        var slot = button.frame
+        slot.origin.x = center - half
+        grabbed.ghost.lift(over: screenFrame(of: slot))
     }
 
-    /// Settles the dropped tab into its place, then reports its new index.
-    private func dragEnded(_ button: BarItem, id: WindowID) {
+    /// Settles the copy into the dragged tab's slot, then reports the tab's new index.
+    private func dragEnded(_ button: TabButton, id: WindowID) {
+        guard let ghost = grabbed?.ghost, let index = tabsView.arrangedSubviews.firstIndex(of: button) else {
+            dropGhost()
+            return
+        }
         grabbed = nil
-        guard let index = tabsView.arrangedSubviews.firstIndex(of: button) else { return }
         // The model changes after the animation, because the change rebuilds the tabs.
-        button.settle { [weak self] in self?.onReorder?(id, index) }
+        ghost.settle(onto: screenFrame(of: button.frame)) { [weak self, weak button] in
+            button?.isPlaceholder = false
+            self?.removeChildWindow(ghost)
+            ghost.orderOut(nil)
+            self?.onReorder?(id, index)
+        }
     }
 
-    /// Animates a tab that moved to its new place from `distance` away.
-    private func slide(_ view: NSView, from distance: CGFloat) {
-        let animation = CABasicAnimation(keyPath: "transform.translation.x")
-        animation.fromValue = distance
-        animation.toValue = 0
-        // Additive, so a tab that slides again starts from where it is.
-        animation.isAdditive = true
-        animation.duration = 0.2
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        view.layer?.add(animation, forKey: nil)
+    /// Removes the copy of a dragged tab right away.
+    private func dropGhost() {
+        guard let ghost = grabbed?.ghost else { return }
+        removeChildWindow(ghost)
+        ghost.orderOut(nil)
+        grabbed = nil
+    }
+
+    private func screenFrame(of rect: NSRect) -> NSRect {
+        convertToScreen(tabsView.convert(rect, to: nil))
     }
 }
 
@@ -201,61 +218,11 @@ private class BarItem: NSView {
         }
     }
 
-    // MARK: - Lifting
-
-    /// Draws the item raised, with a shadow, and moved right by `offset`. Nil puts it back in its place.
-    func lift(by offset: CGFloat?) {
-        guard let layer else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if let offset {
-            layer.transform = lifted(by: offset)
-            layer.zPosition = 1
-            let radius = glass == nil ? 6 : bounds.height / 2
-            layer.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
-            layer.shadowColor = NSColor.black.cgColor
-            layer.shadowOffset = .zero
-            layer.shadowRadius = 3
-            layer.shadowOpacity = 0.35
-        } else {
-            layer.transform = CATransform3DIdentity
-            layer.zPosition = 0
-            layer.shadowOpacity = 0
+    /// True while a copy of the item floats elsewhere, so only an empty slot shows.
+    var isPlaceholder = false {
+        didSet {
+            if let glass { glass.isHidden = isPlaceholder } else { alphaValue = isPlaceholder ? 0 : 1 }
         }
-        CATransaction.commit()
-    }
-
-    /// Animates a lifted item back into its place, then calls `completion`.
-    func settle(completion: @escaping () -> Void) {
-        guard let layer else { return completion() }
-        let transform = CABasicAnimation(keyPath: "transform")
-        transform.fromValue = layer.presentation()?.transform ?? layer.transform
-        transform.toValue = CATransform3DIdentity
-        let shadow = CABasicAnimation(keyPath: "shadowOpacity")
-        shadow.fromValue = layer.shadowOpacity
-        shadow.toValue = 0
-        let group = CAAnimationGroup()
-        group.animations = [transform, shadow]
-        group.duration = 0.15
-        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
-
-        CATransaction.begin()
-        CATransaction.setCompletionBlock(completion)
-        lift(by: nil)
-        layer.add(group, forKey: "settle")
-        CATransaction.commit()
-    }
-
-    /// Scales the item up around its center, and moves it right by `offset`.
-    private func lifted(by offset: CGFloat) -> CATransform3D {
-        guard let layer else { return CATransform3DIdentity }
-        let scale = 1.06
-        // The transform works around the layer's anchor point, so move the center there first.
-        let dx = (0.5 - layer.anchorPoint.x) * bounds.width
-        let dy = (0.5 - layer.anchorPoint.y) * bounds.height
-        var transform = CATransform3DMakeTranslation(offset + dx, dy, 0)
-        transform = CATransform3DScale(transform, scale, scale, 1)
-        return CATransform3DTranslate(transform, -dx, -dy, 0)
     }
 
     /// The item takes every click inside it, so its content and glass never swallow one.
@@ -296,8 +263,14 @@ private final class TabButton: BarItem {
     private let grip = NSImageView()
     /// True while a drag that began on the grip lasts.
     private(set) var isDraggedByGrip = false
+    private let tab: StackTabBar.Tab
+    private let isActive: Bool
+    private let color: NSColor
 
     init(tab: StackTabBar.Tab, isActive: Bool, color: NSColor) {
+        self.tab = tab
+        self.isActive = isActive
+        self.color = color
         super.init(tint: isActive ? color : nil)
 
         let textColor: NSColor = if isActive {
@@ -341,6 +314,11 @@ private final class TabButton: BarItem {
         ])
     }
 
+    /// A new tab that looks the same.
+    func copy() -> TabButton {
+        TabButton(tab: tab, isActive: isActive, color: color)
+    }
+
     override func mouseDown(with event: NSEvent) {
         // The grip takes the tab's end, from a little left of its dots, so it is easy to hit.
         let point = convert(event.locationInWindow, from: nil)
@@ -349,6 +327,50 @@ private final class TabButton: BarItem {
     }
 
     required init?(coder _: NSCoder) { nil }
+}
+
+/// A copy of a tab that floats above the tab bar while the tab is dragged.
+private final class TabGhost: NSPanel {
+    init(showing tab: NSView) {
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
+        ignoresMouseEvents = true
+        isReleasedWhenClosed = false
+        animationBehavior = .none
+        collectionBehavior = [.transient, .ignoresCycle]
+
+        let content = NSView()
+        content.addSubview(tab)
+        NSLayoutConstraint.activate([
+            tab.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            tab.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            tab.topAnchor.constraint(equalTo: content.topAnchor),
+            tab.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        contentView = content
+    }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    /// Shows the tab a little larger than `slot`, as if it was lifted off the bar.
+    func lift(over slot: NSRect) {
+        setFrame(slot.insetBy(dx: -3, dy: -1.5), display: true)
+        invalidateShadow()
+    }
+
+    /// Shrinks the tab into `slot`, then calls `completion`.
+    func settle(onto slot: NSRect, completion: @escaping () -> Void) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setFrame(slot, display: true)
+        } completionHandler: {
+            MainActor.assumeIsolated { completion() }
+        }
+    }
 }
 
 /// Keeps one tab bar per stack on the visible Spaces.
