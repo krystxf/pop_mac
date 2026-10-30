@@ -14,13 +14,13 @@ extension WindowManager {
 
     /// Registers the bindings for the current mode.
     ///
-    /// Tile mode replaces the global bindings, except the launcher and tile-enter.
+    /// Tile mode replaces the global bindings, except tile-enter.
     func registerHotkeys() {
         hotkeys.unregisterAll()
         let inTileMode = tileMode != nil
         for action in Action.allCases {
             let active = inTileMode
-                ? (action.isTileMode || action == .activateLauncher || action == .tileEnter)
+                ? (action.isTileMode || action == .tileEnter)
                 : !action.isTileMode
             guard active else { continue }
             for combo in settings.combos(for: action) {
@@ -47,7 +47,6 @@ extension WindowManager {
     func perform(_ action: Action) {
         Log.debug("action \(action.rawValue)")
         switch action {
-        case .activateLauncher: launcher.toggle()
         case .tileEnter: tileMode == nil ? enterTileMode() : acceptTileMode()
         case .focusLeft: focus(.left)
         case .focusDown: focus(.down)

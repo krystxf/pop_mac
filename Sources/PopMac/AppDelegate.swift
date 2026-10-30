@@ -179,7 +179,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Tile Windows", #selector(toggleTiling), shortcut: .toggleTiling, on: manager.autoTiler != nil))
         menu.addItem(item("Float Focused Window", #selector(toggleFloating), shortcut: .toggleFloating))
         menu.addItem(.separator())
-        menu.addItem(item("Open Launcher", #selector(openLauncher), shortcut: .activateLauncher))
         menu.addItem(item("Keyboard Shortcuts…", #selector(showShortcuts)))
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(showSettings), key: ","))
@@ -225,7 +224,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleTiling() { manager?.toggleTiling() }
     @objc private func toggleFloating() { manager?.toggleFloating() }
-    @objc private func openLauncher() { manager?.launcher.open() }
     @objc private func showWelcome() { welcome.show() }
 
     @objc private func showSettings() {

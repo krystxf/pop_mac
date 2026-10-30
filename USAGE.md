@@ -18,7 +18,7 @@
 | Move window to another workspace | Moves the window to the previous or next Space (see limitations) |
 | Active hint around the focused window | Same. Turn it off in **Settings > Appearance**. |
 | Inner and outer gaps, smart gaps | Same |
-| Launcher (Super + /) | Search windows and apps. `=` calculates, `:` runs a command, `/` or `~` opens files. |
+| Launcher (Super + /) | Not included. Use Spotlight or Raycast. |
 | Cursor follows the active window | Same |
 | Snap floating windows to the grid | Same |
 
@@ -26,7 +26,7 @@
 
 Pop Mac runs in the menu bar. On the first start, a window asks for Accessibility access and then shows the main shortcuts.
 
-The menu bar item turns tiling on or off, floats the focused window, opens the launcher, and opens **Settings**:
+The menu bar item turns tiling on or off, floats the focused window, and opens **Settings**:
 
 | Tab | Settings |
 | --- | --- |

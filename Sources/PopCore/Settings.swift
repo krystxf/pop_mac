@@ -86,7 +86,6 @@ public struct KeyCombo: Hashable, CustomStringConvertible {
 /// The actions that can be bound to keys. The names match Pop Shell's settings.
 public enum Action: String, CaseIterable, Codable {
     // Global
-    case activateLauncher = "activate-launcher"
     case tileEnter = "tile-enter"
     case focusLeft = "focus-left"
     case focusDown = "focus-down"
@@ -145,7 +144,6 @@ public enum Action: String, CaseIterable, Codable {
 
     public var summary: String {
         switch self {
-        case .activateLauncher: "Launch and switch applications"
         case .tileEnter: "Enter tile mode"
         case .focusLeft: "Focus window to the left"
         case .focusDown: "Focus window below"
@@ -189,7 +187,6 @@ public enum Action: String, CaseIterable, Codable {
     }
 
     public static let defaultBindings: [Action: [String]] = [
-        .activateLauncher: ["<Super>slash"],
         .tileEnter: ["<Super>Return", "<Super>KP_Enter"],
         .focusLeft: ["<Super>Left", "<Super>h"],
         .focusDown: ["<Super>Down", "<Super>j"],

@@ -80,7 +80,6 @@ private struct WelcomeView: View {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                 shortcut("⌃⌥ ← ↓ ↑ →", "Focus a window")
                 shortcut("⌃⌥ ↩", "Tile mode: move, resize, and swap")
-                shortcut("⌃⌥ /", "Launcher")
                 shortcut("⌃⌥ G", "Float or tile a window")
                 shortcut("⌃⌥ Y", "Turn tiling on or off")
             }

@@ -30,7 +30,7 @@ func diagnose() {
         }
     }
     let settings = (try? Settings.load()) ?? Settings()
-    for action in [Action.focusLeft, .tileEnter, .activateLauncher] {
+    for action in [Action.focusLeft, .tileEnter] {
         let combos = settings.combos(for: action)
         let codes = combos.map { "\($0)=\(KeyCodes.code(for: $0.key).map(String.init) ?? "?")" }
         print("\(action.rawValue): \(codes.joined(separator: ", "))")
