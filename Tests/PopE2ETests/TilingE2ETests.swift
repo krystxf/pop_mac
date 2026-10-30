@@ -5,7 +5,8 @@ import Testing
 /// Runs the real PopMac binary against the windows of PopTestApp.
 ///
 /// Run with `make e2e`. See `E2E` for what the tests need.
-@Suite(.serialized, .enabled(if: E2E.enabled, "Set POP_MAC_E2E=1 to run the end-to-end tests"))
+/// A test that hangs fails after a minute, instead of blocking the whole run.
+@Suite(.serialized, .timeLimit(.minutes(1)), .enabled(if: E2E.enabled, "Set POP_MAC_E2E=1 to run the end-to-end tests"))
 struct TilingE2ETests {
     @Test func newWindowsSplitTheFocusedWindow() async throws {
         let session = try Session()
