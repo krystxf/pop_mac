@@ -184,3 +184,27 @@ jobs:
 
       - name: Test
         run: swift test --sanitize=${{ matrix.sanitizer }} --filter PopCoreTests
+
+  # A report, not a check: how many warnings Swift 6 strict concurrency would turn into errors.
+  concurrency:
+    name: Swift 6 concurrency report
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build with complete concurrency checking
+        run: |
+          swift build --build-tests -Xswiftc -strict-concurrency=complete 2>&1 | tee build.log
+          grep -E '^/.*: warning:' build.log | sort -u > warnings.txt || true
+          {
+            echo "### Swift 6 concurrency"
+            echo
+            echo "$(wc -l < warnings.txt | tr -d ' ') warnings would be errors in the Swift 6 language mode."
+            echo
+            echo '```'
+            sed -E "s#^$PWD/##" warnings.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
