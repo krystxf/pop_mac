@@ -41,7 +41,8 @@ def anchors(path):
         match = re.match(r"^#{1,6}\s+(.*?)\s*#*\s*$", line)
         if not match:
             continue
-        text = re.sub(r"`|\*|_(?=\S)|(?<=\S)_", "", match.group(1)).lower()
+        # Emphasis marks go, but an underscore inside a word, as in pop_mac, stays.
+        text = re.sub(r"`|\*|(?<!\w)_+|_+(?!\w)", "", match.group(1)).lower()
         slug = re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
         count = seen.get(slug, 0)
         seen[slug] = count + 1
