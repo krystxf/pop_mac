@@ -7,7 +7,6 @@ Both are configurable in **Settings > Shortcuts**, which also lists the current 
 | --- | --- |
 | Focus window left / down / up / right | ⌃⌥ ← ↓ ↑ → or ⌃⌥ H J K L |
 | Enter tile mode | ⌃⌥ ↩ |
-| Launcher | ⌃⌥ / |
 | Toggle orientation | ⌃⌥ O |
 | Toggle floating | ⌃⌥ G |
 | Toggle auto-tiling | ⌃⌥ Y |

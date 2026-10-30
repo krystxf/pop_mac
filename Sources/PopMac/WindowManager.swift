@@ -45,7 +45,6 @@ final class WindowManager {
     private var savedTrees: [SavedTree] = []
     private var layoutSaveScheduled = false
     let hotkeys = HotkeyManager()
-    private(set) lazy var launcher = Launcher(manager: self)
     private var mouse: MouseMonitor?
     private var signalSource: DispatchSourceSignal?
     var tileMode: TileMode?

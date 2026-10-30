@@ -320,7 +320,7 @@ private struct GeneralSettings: View {
                 }
                 .disabled(!model.settings.mouseCursorFollowsActiveWindow)
             } footer: {
-                Footnote("Applies when you move focus or windows with the keyboard, and when you pick a window in the launcher.")
+                Footnote("Applies when you move focus or windows with the keyboard.")
             }
 
             Section {
