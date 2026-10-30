@@ -40,9 +40,19 @@ Only one copy can manage windows, so starting a build quits the other one. Pop M
 It is signed again with the Developer ID certificate in your keychain, if there is one, so the access stays across updates.
 It installs only a release that Apple notarized and that the Pop Mac team signed, so it never signs someone else's app.
 
-CI runs on every push and pull request. It checks the formatting with SwiftFormat, lints the
-shell script and the workflow, builds with warnings as errors, runs the tests, and builds the app
-bundle. The bundle is attached to each run as the `PopMac` artifact.
+CI runs on every push and pull request:
+
+| Job | Checks |
+| --- | --- |
+| Lint | SwiftFormat, ShellCheck, and actionlint. zizmor for security problems in the workflows. The tests of the release scripts. The relative links in the Markdown files. |
+| Build and test | A build with warnings as errors, the tests, and the app bundle, which is attached to the run as the `PopMac` artifact. A smoke test of the app. The minimum macOS in `Package.swift`, `Info.plist`, the app, and the cask. `brew style` and `brew audit` on the cask. |
+| Smoke test | The app from the build job on macOS 15 and macOS 14, which catches APIs and private symbols that older systems lack. |
+| Tests with sanitizers | The tests with the address sanitizer and the thread sanitizer. |
+| Swift 6 concurrency report | The warnings that the Swift 6 language mode would turn into errors, in the job summary. It never fails. |
+| Release notes | For a pull request into `main` that makes a release: notes in the "Release notes" section, and at most one release label. |
+
+CodeQL checks the Swift code and the workflows every week. The checks run locally too:
+`./scripts/test-release-scripts.sh`, `python3 scripts/check-links.py`, and, after `make app`, `./scripts/check-min-macos.sh`.
 
 The code has two parts:
 
@@ -51,21 +61,28 @@ The code has two parts:
 
 ## Releases
 
-Changes reach `main` through pull requests, and merging one makes a release:
+Changes reach `main` through pull requests. When CI passes on `main` after a merge, the Release
+workflow releases every pull request merged since the last release tag. It builds the commit that
+CI tested, so nothing ships that fails a check, and a failing CI run on `main` stops the release
+until a fix merges.
 
 - The labels `release:major`, `release:minor`, and `release:patch` pick the part of the version to bump.
+  When several pull requests go into one release, the highest bump wins.
   Without a label, a change to code makes a patch release, and a change to docs or workflows only makes none.
   The label `no-release` skips the release.
-- The "Release notes" section of the pull request becomes the notes of the release.
-- The Release workflow builds the app and signs it with the Developer ID. It notarizes and staples it,
-  tags the merge commit, and publishes the GitHub release with `PopMac.zip`.
+- The "Release notes" sections of the pull requests become the notes of the release.
+- The Release workflow builds the app, signs it with the Developer ID, notarizes and staples it, and
+  publishes the GitHub release with `PopMac.zip`. Publishing the release creates its tag.
   Then it updates the cask in [krystxf/homebrew-tap](https://github.com/krystxf/homebrew-tap)
   from `packaging/homebrew/pop-mac.rb`.
+- A release that fails can be re-run from its failed job. A run that GitHub cancels, or one that
+  fails before it publishes, loses nothing: the next run releases its pull requests too.
 
 Builds take their version from the latest release tag. The version in `Resources/Info.plist` is only a fallback.
 
 The workflow reads these secrets from the `release` environment, which only `main` can use.
-It builds the app before it imports the certificate, and deletes the keychain right after signing.
+The app builds in a job without secrets. The job with the secrets checks out no code from the
+repository and only signs, notarizes, and publishes the built app.
 
 | Secret | Content |
 | --- | --- |

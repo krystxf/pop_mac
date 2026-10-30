@@ -6,7 +6,7 @@ cask "pop-mac" do
 
   url "https://github.com/krystxf/pop_mac/releases/download/v#{version}/PopMac.zip"
   name "Pop Mac"
-  desc "Pop!_OS Shell tiling window manager for macOS"
+  desc "Pop!_OS Shell tiling window manager"
   homepage "https://github.com/krystxf/pop_mac"
 
   livecheck do
@@ -14,7 +14,7 @@ cask "pop-mac" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "PopMac.app"
 
