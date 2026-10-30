@@ -20,8 +20,8 @@ enum Log {
     }
 
     static func warn(_ message: String) {
-        logger.warning("\(message, privacy: .public)")
-        if verbose { FileHandle.standardError.write(Data(("[warn] " + message + "\n").utf8)) }
+        // Logger.warning writes at the error level.
+        write(.error, "warn", message, nil)
     }
 
     private static func write(_ level: OSLogType, _ label: String, _ message: String, _ details: String?) {
