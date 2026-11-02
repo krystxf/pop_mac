@@ -1037,10 +1037,15 @@ final class WindowManager {
 
         let visible = Set(displays.map { currentKey(of: $0) })
         let height = autoTiler.forest.tabHeight
+        // Stacks on Spaces out of view keep their bars. macOS shows a bar again with its
+        // Space, so the tabs slide in with the windows instead of fading in after them.
+        var hidden = Set<Int>()
         let entries = autoTiler.forest.allStacks().compactMap { stack -> StackTabsController.Entry? in
-            guard let rect = stack.rect, let fork = autoTiler.findStack(stack.active)?.fork,
-                  visible.contains(autoTiler.forest.toplevel(of: fork).workspace)
-            else { return nil }
+            guard let rect = stack.rect, let fork = autoTiler.findStack(stack.active)?.fork else { return nil }
+            guard visible.contains(autoTiler.forest.toplevel(of: fork).workspace) else {
+                hidden.insert(stack.id)
+                return nil
+            }
             let tabs = stack.entities.compactMap { id -> StackTabBar.Tab? in
                 guard let window = windows[id] else { return nil }
                 let label = tabLabels[id]
@@ -1071,7 +1076,7 @@ final class WindowManager {
         } color: { [weak self] id, color in
             MainActor.assumeIsolated { self?.changeLabel(of: id) { $0.color = color } }
         }
-        tabs.sync(entries, actions: actions)
+        tabs.sync(entries, keeping: hidden, actions: actions)
         scheduleHint()
     }
 

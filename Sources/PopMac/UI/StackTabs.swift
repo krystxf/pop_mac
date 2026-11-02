@@ -159,6 +159,8 @@ final class StackTabBar: NSPanel, GlidingWindow {
         } else {
             track.layer?.cornerRadius = radius
         }
+        // A bar left on another Space, as when its stack moved there, comes to this one.
+        if isVisible, !isOnActiveSpace { orderOut(nil) }
         appear(at: Displays.toCocoa(frame))
         order(.above, relativeTo: Int(window))
     }
@@ -830,7 +832,9 @@ final class StackTabsController {
 
     private var bars: [Int: StackTabBar] = [:]
 
-    func sync(_ entries: [Entry], actions: Actions) {
+    /// Shows a bar for each entry. The bars of the `keeping` stacks stay as they are,
+    /// and the other bars close.
+    func sync(_ entries: [Entry], keeping: Set<Int>, actions: Actions) {
         var seen = Set<Int>()
         for entry in entries {
             seen.insert(entry.stack.id)
@@ -844,7 +848,7 @@ final class StackTabsController {
             bar.onDrag = { actions.drag(stack, $0) }
             bar.update(tabs: entry.tabs, active: entry.stack.active, frame: entry.frame, above: entry.stack.active)
         }
-        for (id, bar) in bars where !seen.contains(id) {
+        for (id, bar) in bars where !seen.contains(id) && !keeping.contains(id) {
             bar.disappear()
             bars.removeValue(forKey: id)
         }
