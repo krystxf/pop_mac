@@ -63,6 +63,15 @@ final class TabColorPicker: NSView {
 
     required init?(coder _: NSCoder) { nil }
 
+    /// A small circle of the color, for a menu item.
+    static func swatch(_ color: TabColor) -> NSImage {
+        NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            NSGradient(starting: color.stops.0, ending: color.stops.1)?.draw(in: circle, angle: 0)
+            return true
+        }
+    }
+
     private func rect(at index: Int) -> NSRect {
         let x = Self.inset + CGFloat(index) * (Self.diameter + Self.spacing)
         return NSRect(x: x, y: (bounds.height - Self.diameter) / 2, width: Self.diameter, height: Self.diameter)

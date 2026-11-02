@@ -142,6 +142,19 @@ final class StackTabBar: NSPanel, GlidingWindow {
             self?.onColor?(tab.id, color)
         }
         menu.addItem(colors)
+        // The same choices as titled items, for the keyboard and VoiceOver.
+        let submenu = NSMenu()
+        for color in [nil] + TabColor.allCases.map(Optional.some) {
+            let item = ActionMenuItem(title: color?.name ?? "None") { [weak self] in
+                self?.onColor?(tab.id, color)
+            }
+            item.state = color == tab.color ? .on : .off
+            item.image = color.map(TabColorPicker.swatch)
+            submenu.addItem(item)
+        }
+        let colorItem = NSMenuItem(title: "Tab Color", action: nil, keyEquivalent: "")
+        colorItem.submenu = submenu
+        menu.addItem(colorItem)
         NSMenu.popUpContextMenu(menu, with: event, for: button)
     }
 
