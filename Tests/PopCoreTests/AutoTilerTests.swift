@@ -470,6 +470,20 @@ struct AutoTilerTests {
         #expect(env.stacks.first?.active == 4)
     }
 
+    @Test func savedLayoutKeepsTabLabels() throws {
+        let saved = SavedLayout(trees: [], tabs: [TabLabel(window: 3, name: "Docs", color: .mint), TabLabel(window: 4, color: .rose)])
+        let decoded = try JSONDecoder().decode(SavedLayout.self, from: JSONEncoder().encode(saved))
+        #expect(decoded == saved)
+
+        // A layout from before tab labels has none.
+        let old = try JSONDecoder().decode(SavedLayout.self, from: Data(#"{"trees":[]}"#.utf8))
+        #expect(old.tabs == nil)
+
+        // A color this version does not know drops out, and the name stays.
+        let newer = try JSONDecoder().decode(SavedLayout.self, from: Data(#"{"trees":[],"tabs":[{"window":3,"name":"Docs","color":"teal"}]}"#.utf8))
+        #expect(newer.tabs == [TabLabel(window: 3, name: "Docs")])
+    }
+
     @Test func savedLayoutSkipsWindowsThatAreGone() {
         _ = openStackBottomRight()
         let saved = tiler.forest.snapshot()
