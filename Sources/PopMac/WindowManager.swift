@@ -41,6 +41,8 @@ final class WindowManager {
     private var stacksScheduled = false
     /// When the drop preview of a dragged stack was last updated.
     private var stackPreviewTime = Date.distantPast
+    /// The names and colors that the user gave to stack tabs, by window.
+    private var tabLabels: [WindowID: TabLabel] = [:]
     /// Saved trees from before Pop Mac started, waiting for their Space to be visible.
     private var savedTrees: [SavedTree] = []
     private var layoutSaveScheduled = false
@@ -753,7 +755,11 @@ final class WindowManager {
         }
 
         // The layout from before a restart, or from before tiling was turned off.
-        savedTrees = SavedLayout.load()?.trees ?? []
+        let saved = SavedLayout.load()
+        savedTrees = saved?.trees ?? []
+        for label in saved?.tabs ?? [] where tabLabels[label.window] == nil {
+            tabLabels[label.window] = label
+        }
 
         // Rebuild the saved layout first, with its stacks. Then tile the other windows
         // from back to front, so the frontmost window is split last.
@@ -884,6 +890,12 @@ final class WindowManager {
         // Saved trees of Spaces not visited since the start stay saved.
         let current = Set(layout.trees.map(\.key))
         layout.trees += savedTrees.filter { !current.contains($0.key) }
+        // Labels of windows that closed drop out. Windows on other Spaces still exist.
+        // A failed scan keeps every label, instead of dropping them all.
+        if let alive = Displays.allWindowIDs() {
+            tabLabels = tabLabels.filter { alive.contains($0.key) }
+        }
+        layout.tabs = tabLabels.values.sorted { $0.window < $1.window }
         do {
             try layout.save()
         } catch {
@@ -1033,27 +1045,52 @@ final class WindowManager {
             else { return nil }
             let tabs = stack.entities.compactMap { id -> StackTabBar.Tab? in
                 guard let window = windows[id] else { return nil }
-                return StackTabBar.Tab(id: id, title: window.title, icon: window.app.icon)
+                let label = tabLabels[id]
+                return StackTabBar.Tab(
+                    id: id, title: label?.name ?? window.title, icon: window.app.icon,
+                    color: label?.color, isRenamed: label?.name != nil
+                )
             }
             return StackTabsController.Entry(stack: stack, frame: Rect(rect.x, rect.y - height, rect.width, height - 2), tabs: tabs)
         }
 
-        tabs.sync(entries, color: accentColor) { [weak self] id in
+        let actions = StackTabsController.Actions { [weak self] id in
             MainActor.assumeIsolated { self?.activate(id, moveCursor: false) }
-        } onReorder: { [weak self] id, index in
+        } reorder: { [weak self] id, index in
             MainActor.assumeIsolated {
                 self?.autoTiler?.moveInStack(id, to: index)
                 self?.activate(id, moveCursor: false)
             }
-        } onDrag: { [weak self] stack, phase in
+        } drag: { [weak self] stack, phase in
             MainActor.assumeIsolated {
                 switch phase {
                 case .moved: self?.stackDragMoved(stack)
                 case let .ended(flags): self?.stackDragEnded(stack, flags: flags)
                 }
             }
+        } rename: { [weak self] id, name in
+            MainActor.assumeIsolated { self?.renameTab(id, to: name) }
+        } color: { [weak self] id, color in
+            MainActor.assumeIsolated { self?.changeLabel(of: id) { $0.color = color } }
         }
+        tabs.sync(entries, color: accentColor, actions: actions)
         scheduleHint()
+    }
+
+    /// Shows `name` on the window's tab. An empty name, or the window's own title,
+    /// shows the title again, and follows it when it changes.
+    private func renameTab(_ id: WindowID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let keep = !name.isEmpty && name != windows[id]?.title
+        changeLabel(of: id) { $0.name = keep ? name : nil }
+    }
+
+    private func changeLabel(of id: WindowID, _ change: (inout TabLabel) -> Void) {
+        var label = tabLabels[id] ?? TabLabel(window: id)
+        change(&label)
+        tabLabels[id] = label.isEmpty ? nil : label
+        scheduleStacksRefresh()
+        scheduleLayoutSave()
     }
 
     /// Shows where a stack that is dragged by its tab bar would land.

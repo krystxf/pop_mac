@@ -5,6 +5,7 @@ import PopCore
 ///
 /// A click on a tab focuses its window. A drag of the grip at a tab's right
 /// end moves the tab to another position. A drag of the rest moves the whole stack.
+/// A secondary click opens a menu that renames the tab or gives it a color.
 /// The bar glides along when its stack moves.
 final class StackTabBar: NSPanel, GlidingWindow {
     private let tabsView = NSStackView()
@@ -18,6 +19,12 @@ final class StackTabBar: NSPanel, GlidingWindow {
     /// Called when a tab dragged by its grip was dropped, with its new index.
     var onReorder: ((WindowID, Int) -> Void)?
     var onDrag: ((DragPhase) -> Void)?
+    /// Called when the user renamed a tab. An empty name shows the window's title again.
+    var onRename: ((WindowID, String) -> Void)?
+    /// Called when the user picked a color for a tab, or nil for none.
+    var onColor: ((WindowID, TabColor?) -> Void)?
+    /// True while a tab's name is edited. Only then can the bar take key presses.
+    private var isRenaming = false
 
     enum DragPhase {
         case moved
@@ -27,8 +34,12 @@ final class StackTabBar: NSPanel, GlidingWindow {
 
     struct Tab: Equatable {
         let id: WindowID
+        /// The name the user gave the tab, or else the window's title.
         let title: String
         let icon: NSImage?
+        var color: TabColor?
+        /// True if the user gave the tab a name.
+        var isRenamed = false
     }
 
     /// The stack's selected window, which the bar stays above.
@@ -64,11 +75,19 @@ final class StackTabBar: NSPanel, GlidingWindow {
         }
     }
 
-    override var canBecomeKey: Bool { false }
+    /// The bar is a non-activating panel, so it takes key presses without activating Pop Mac.
+    override var canBecomeKey: Bool { isRenaming }
     override var canBecomeMain: Bool { false }
 
+    /// A click in another window ends the rename, and keeps the new name.
+    override func resignKey() {
+        super.resignKey()
+        if isRenaming { makeFirstResponder(nil) }
+    }
+
     func update(tabs: [Tab], active: WindowID, color: NSColor, frame: Rect, above window: WindowID) {
-        if shown?.tabs != tabs || shown?.active != active || shown?.color != color {
+        // A rebuild would remove the name field. The next update after the rename rebuilds the bar.
+        if !isRenaming, shown?.tabs != tabs || shown?.active != active || shown?.color != color {
             shown = (tabs, active, color)
             dropGhost()
             for view in tabsView.arrangedSubviews {
@@ -86,6 +105,10 @@ final class StackTabBar: NSPanel, GlidingWindow {
                     guard let self, let button else { return }
                     if button.isDraggedByGrip { dragEnded(button, id: tab.id) } else { onDrag?(.ended(flags)) }
                 }
+                button.onMenu = { [weak self, weak button] event in
+                    guard let self, let button else { return }
+                    showMenu(for: tab, of: button, event: event)
+                }
                 tabsView.addArrangedSubview(button)
                 // A horizontal stack view does not stretch its views to its height.
                 let insets = tabsView.edgeInsets.top + tabsView.edgeInsets.bottom
@@ -96,6 +119,57 @@ final class StackTabBar: NSPanel, GlidingWindow {
         self.window = window
         appear(at: Displays.toCocoa(frame))
         order(.above, relativeTo: Int(window))
+    }
+
+    // MARK: - Names and colors
+
+    private func showMenu(for tab: Tab, of button: TabButton, event: NSEvent) {
+        guard !isRenaming else { return }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(ActionMenuItem(title: "Rename Tab…") { [weak self, weak button] in
+            guard let self, let button else { return }
+            rename(button, id: tab.id)
+        })
+        if tab.isRenamed {
+            menu.addItem(ActionMenuItem(title: "Show Window Title") { [weak self] in
+                self?.onRename?(tab.id, "")
+            })
+        }
+        menu.addItem(.separator())
+        let colors = NSMenuItem()
+        colors.view = TabColorPicker(selected: tab.color) { [weak self] color in
+            self?.onColor?(tab.id, color)
+        }
+        menu.addItem(colors)
+        // The same choices as titled items, for the keyboard and VoiceOver.
+        let submenu = NSMenu()
+        for color in [nil] + TabColor.allCases.map(Optional.some) {
+            let item = ActionMenuItem(title: color?.name ?? "None") { [weak self] in
+                self?.onColor?(tab.id, color)
+            }
+            item.state = color == tab.color ? .on : .off
+            item.image = color.map(TabColorPicker.swatch)
+            submenu.addItem(item)
+        }
+        let colorItem = NSMenuItem(title: "Tab Color", action: nil, keyEquivalent: "")
+        colorItem.submenu = submenu
+        menu.addItem(colorItem)
+        NSMenu.popUpContextMenu(menu, with: event, for: button)
+    }
+
+    /// Turns the tab's name into a text field and takes the keyboard.
+    private func rename(_ button: TabButton, id: WindowID) {
+        dropGhost()
+        isRenaming = true
+        makeKey()
+        button.beginRename { [weak self] name, refocus in
+            guard let self else { return }
+            isRenaming = false
+            if let name { onRename?(id, name) }
+            // Return or Escape hands the keyboard back to the stack's window.
+            if refocus, let window { onSelect?(window) }
+        }
     }
 
     // MARK: - Reordering
@@ -176,16 +250,23 @@ private class BarItem: NSView {
     var onDragMoved: ((NSPoint) -> Void)?
     /// Called when the drag ended, with the modifiers held at mouse-up.
     var onDragEnded: ((CGEventFlags) -> Void)?
+    /// Called on a secondary click, such as a two-finger click.
+    var onMenu: ((NSEvent) -> Void)?
     /// The view that holds the item's content.
     private(set) var body: NSView!
     /// Where the mouse went down, in window coordinates.
     private(set) var downPoint: NSPoint?
+    /// While true, clicks reach the item's content, such as a text field.
+    var passesClicksToContent = false
     private var isDragging = false
     private var glass: NSView?
 
     /// Liquid Glass on macOS 26 and later, tinted with `tint`. A solid rounded rectangle before.
-    init(tint: NSColor?) {
+    ///
+    /// A `gradient` fills the item from left to right, over the glass.
+    init(tint: NSColor?, gradient colors: [NSColor]? = nil) {
         super.init(frame: .zero)
+        defer { addGradient(colors) }
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         if #available(macOS 26, *) {
@@ -212,6 +293,18 @@ private class BarItem: NSView {
 
     required init?(coder _: NSCoder) { nil }
 
+    private func addGradient(_ colors: [NSColor]?) {
+        guard let colors else { return }
+        let view = GradientView(colors: colors, pill: glass != nil)
+        body.addSubview(view, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: body.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: body.trailingAnchor),
+            view.topAnchor.constraint(equalTo: body.topAnchor),
+            view.bottomAnchor.constraint(equalTo: body.bottomAnchor),
+        ])
+    }
+
     override func layout() {
         super.layout()
         // A pill: fully round ends at any height.
@@ -229,11 +322,17 @@ private class BarItem: NSView {
 
     /// The item takes every click inside it, so its content and glass never swallow one.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        frame.contains(point) ? self : nil
+        guard frame.contains(point) else { return nil }
+        return passesClicksToContent ? super.hitTest(point) ?? self : self
     }
 
     /// Pop Mac is never the active app, so the first click must count.
     override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard !passesClicksToContent, let onMenu else { return super.rightMouseDown(with: event) }
+        onMenu(event)
+    }
 
     override func mouseDown(with event: NSEvent) {
         downPoint = event.locationInWindow
@@ -260,7 +359,36 @@ private class BarItem: NSView {
     }
 }
 
-private final class TabButton: BarItem {
+/// A left-to-right gradient with rounded ends, which sizes itself with its view.
+private final class GradientView: NSView {
+    private let pill: Bool
+
+    /// With `pill`, the ends are fully round, like Liquid Glass. Otherwise the corners are slightly round.
+    init(colors: [NSColor], pill: Bool) {
+        self.pill = pill
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        guard let layer = layer as? CAGradientLayer else { return }
+        layer.colors = colors.map(\.cgColor)
+        layer.startPoint = CGPoint(x: 0, y: 0.5)
+        layer.endPoint = CGPoint(x: 1, y: 0.5)
+    }
+
+    required init?(coder _: NSCoder) { nil }
+
+    override func makeBackingLayer() -> CALayer { CAGradientLayer() }
+
+    /// Clicks go to the tab.
+    override func hitTest(_: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = pill ? bounds.height / 2 : 6
+    }
+}
+
+private final class TabButton: BarItem, NSTextFieldDelegate {
     /// The dots at the tab's right end, which drag the tab along the bar.
     private let grip = NSImageView()
     /// True while a drag that began on the grip lasts.
@@ -268,14 +396,30 @@ private final class TabButton: BarItem {
     private let tab: StackTabBar.Tab
     private let isActive: Bool
     private let color: NSColor
+    private let label: NSTextField
+    private let icon: NSImageView
+    /// The field that edits the tab's name, while a rename lasts.
+    private var nameField: NSTextField?
+    /// Called once when the rename ends, with the new name or nil if it was canceled,
+    /// and true if the user pressed a key that hands the keyboard back.
+    private var onRenameEnd: ((String?, Bool) -> Void)?
 
     init(tab: StackTabBar.Tab, isActive: Bool, color: NSColor) {
         self.tab = tab
         self.isActive = isActive
         self.color = color
-        super.init(tint: isActive ? color : nil)
+        label = NSTextField(labelWithString: tab.title.isEmpty ? "Untitled" : tab.title)
+        icon = NSImageView(image: tab.icon ?? NSImage())
 
-        let textColor: NSColor = if isActive {
+        // A colored tab shows its color instead of the accent color, with some glass
+        // showing through. The selected tab shows the color stronger than the others.
+        let gradient = tab.color.map { $0.gradient(alpha: isActive ? 0.8 : 0.6) }
+        super.init(tint: isActive && tab.color == nil ? color : nil, gradient: gradient)
+
+        // Dark text reads best on the pastel colors.
+        let textColor: NSColor = if tab.color != nil {
+            NSColor.black.withAlphaComponent(isActive ? 0.85 : 0.7)
+        } else if isActive {
             color.contrastingText
         } else if #available(macOS 26, *) {
             .labelColor
@@ -283,14 +427,12 @@ private final class TabButton: BarItem {
             .white
         }
 
-        let label = NSTextField(labelWithString: tab.title.isEmpty ? "Untitled" : tab.title)
         label.font = .systemFont(ofSize: 11, weight: isActive ? .semibold : .regular)
         label.textColor = textColor
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let icon = NSImageView(image: tab.icon ?? NSImage())
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyUpOrDown
 
@@ -329,6 +471,71 @@ private final class TabButton: BarItem {
     }
 
     required init?(coder _: NSCoder) { nil }
+
+    // MARK: - Renaming
+
+    /// Puts a text field with the tab's name in place of the name, with the name selected.
+    ///
+    /// The tab's window must be key already.
+    func beginRename(onEnd: @escaping (String?, Bool) -> Void) {
+        guard nameField == nil else { return }
+        let field = NSTextField(string: tab.title)
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = label.font
+        field.textColor = label.textColor
+        field.usesSingleLineMode = true
+        field.cell?.isScrollable = true
+        field.cell?.wraps = false
+        field.placeholderString = "Window title"
+        field.delegate = self
+        field.translatesAutoresizingMaskIntoConstraints = false
+        body.addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 2),
+            field.trailingAnchor.constraint(equalTo: grip.leadingAnchor, constant: -4),
+            field.centerYAnchor.constraint(equalTo: body.centerYAnchor),
+        ])
+        label.isHidden = true
+        nameField = field
+        onRenameEnd = onEnd
+        passesClicksToContent = true
+        window?.makeFirstResponder(field)
+        field.currentEditor()?.selectAll(nil)
+    }
+
+    func control(_: NSControl, textView _: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.cancelOperation(_:)):
+            endRename(keep: false, refocus: true)
+        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)),
+             #selector(NSResponder.insertBacktab(_:)):
+            endRename(keep: true, refocus: true)
+        default:
+            return false
+        }
+        return true
+    }
+
+    /// The field lost the keyboard, as after a click in another window.
+    func controlTextDidEndEditing(_: Notification) {
+        endRename(keep: true, refocus: false)
+    }
+
+    private func endRename(keep: Bool, refocus: Bool) {
+        guard let field = nameField, let onEnd = onRenameEnd else { return }
+        // Cleared first: removing the field ends its editing, which calls back here.
+        nameField = nil
+        onRenameEnd = nil
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        window?.makeFirstResponder(nil)
+        field.removeFromSuperview()
+        passesClicksToContent = false
+        if keep, !name.isEmpty { label.stringValue = name }
+        label.isHidden = false
+        onEnd(keep ? name : nil, refocus)
+    }
 }
 
 /// A copy of a tab that floats above the tab bar while the tab is dragged.
@@ -385,23 +592,34 @@ final class StackTabsController {
         let tabs: [StackTabBar.Tab]
     }
 
+    /// What the tab bars do when the user works with them.
+    struct Actions {
+        /// Focuses a tab's window.
+        var select: (WindowID) -> Void
+        /// Moves a tab to a new index in its stack.
+        var reorder: (WindowID, Int) -> Void
+        /// Moves the whole stack.
+        var drag: (StackNode, StackTabBar.DragPhase) -> Void
+        /// Names a tab. An empty name shows the window's title again.
+        var rename: (WindowID, String) -> Void
+        /// Colors a tab, or removes its color.
+        var color: (WindowID, TabColor?) -> Void
+    }
+
     private var bars: [Int: StackTabBar] = [:]
 
-    func sync(
-        _ entries: [Entry], color: NSColor,
-        onSelect: @escaping (WindowID) -> Void,
-        onReorder: @escaping (WindowID, Int) -> Void,
-        onDrag: @escaping (StackNode, StackTabBar.DragPhase) -> Void
-    ) {
+    func sync(_ entries: [Entry], color: NSColor, actions: Actions) {
         var seen = Set<Int>()
         for entry in entries {
             seen.insert(entry.stack.id)
             let bar = bars[entry.stack.id] ?? StackTabBar()
             bars[entry.stack.id] = bar
-            bar.onSelect = onSelect
-            bar.onReorder = onReorder
+            bar.onSelect = actions.select
+            bar.onReorder = actions.reorder
+            bar.onRename = actions.rename
+            bar.onColor = actions.color
             let stack = entry.stack
-            bar.onDrag = { onDrag(stack, $0) }
+            bar.onDrag = { actions.drag(stack, $0) }
             bar.update(tabs: entry.tabs, active: entry.stack.active, color: color, frame: entry.frame, above: entry.stack.active)
         }
         for (id, bar) in bars where !seen.contains(id) {
