@@ -414,8 +414,15 @@ private final class TabFill: NSView {
         case .none: ([.clear, .clear], false)
         case .hover: ([Self.hoverFill, Self.hoverFill], false)
         case .raised: ([Self.raisedFill, Self.raisedFill], true)
-        // The other tabs show only a hint of their color, so they do not draw the eye.
-        case let .colored(color, raised): (color.gradient(alpha: raised ? 0.8 : 0.28), raised)
+        case let .colored(color, true): (color.gradient(alpha: 0.8), true)
+        // The other tabs show their color at the left end only, fading out to the track,
+        // so they do not draw the eye.
+        case let .colored(color, false): ([color.stops.0.withAlphaComponent(0.45), color.stops.1.withAlphaComponent(0)], false)
+        }
+        if case .colored(_, false) = style {
+            layer.locations = [0, 0.3]
+        } else {
+            layer.locations = nil
         }
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer.colors = colors.map(\.cgColor)
