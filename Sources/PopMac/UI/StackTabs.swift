@@ -120,6 +120,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
                     guard let self, let button else { return }
                     if button.isDraggedByGrip { dragEnded(button, id: tab.id) } else { onDrag?(.ended(flags)) }
                 }
+                button.onHover = { [weak self] in self?.updateDividers() }
                 button.onMenu = { [weak self, weak button] event in
                     guard let self, let button else { return }
                     showMenu(for: tab, of: button, event: event)
@@ -129,6 +130,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
                 let insets = tabsView.edgeInsets.top + tabsView.edgeInsets.bottom
                 button.heightAnchor.constraint(equalTo: tabsView.heightAnchor, constant: -insets).isActive = true
             }
+            updateDividers()
         }
 
         self.window = window
@@ -146,6 +148,19 @@ final class StackTabBar: NSPanel, GlidingWindow {
         }
         appear(at: Displays.toCocoa(frame))
         order(.above, relativeTo: Int(window))
+    }
+
+    /// Shows a line between two tabs, unless one of them is selected or under the mouse, as in Safari.
+    private func updateDividers() {
+        let buttons = tabsView.arrangedSubviews.compactMap { $0 as? TabButton }
+        for (index, button) in buttons.enumerated() {
+            guard index + 1 < buttons.count else {
+                button.showsDivider = false
+                continue
+            }
+            let next = buttons[index + 1]
+            button.showsDivider = ![button, next].contains { $0.isActive || $0.isHovered || $0.isPlaceholder }
+        }
     }
 
     // MARK: - Names and colors
@@ -213,6 +228,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
             addChildWindow(ghost, ordered: .above)
             grabbed = (ghost, down.x - button.frame.midX)
             button.isPlaceholder = true
+            updateDividers()
         }
         guard let grabbed else { return }
 
@@ -229,6 +245,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
             // The tab stays in the view tree, so it keeps getting the drag's events.
             tabsView.removeArrangedSubview(button)
             tabsView.insertArrangedSubview(button, at: index)
+            updateDividers()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
                 context.allowsImplicitAnimation = true
@@ -251,6 +268,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
         // The model changes after the animation, because the change rebuilds the tabs.
         ghost.settle(onto: screenFrame(of: button.frame)) { [weak self, weak button] in
             button?.isPlaceholder = false
+            self?.updateDividers()
             self?.removeChildWindow(ghost)
             ghost.orderOut(nil)
             self?.onReorder?(id, index)
@@ -417,7 +435,7 @@ private final class TabFill: NSView {
         case let .colored(color, true): (color.gradient(alpha: 0.8), true)
         // The other tabs show their color at the left end only, fading out to the track,
         // so they do not draw the eye.
-        case let .colored(color, false): ([color.stops.0.withAlphaComponent(0.45), color.stops.1.withAlphaComponent(0)], false)
+        case let .colored(color, false): ([color.stops.0.withAlphaComponent(0.35), color.stops.1.withAlphaComponent(0)], false)
         }
         if case .colored(_, false) = style {
             layer.locations = [0, 0.3]
@@ -433,6 +451,17 @@ private final class TabFill: NSView {
     }
 }
 
+/// A thin line between two tabs, in the system's separator color.
+private final class DividerView: NSView {
+    override func draw(_: NSRect) {
+        NSColor.separatorColor.setFill()
+        bounds.fill()
+    }
+
+    /// Clicks go to the tab.
+    override func hitTest(_: NSPoint) -> NSView? { nil }
+}
+
 private extension NSAppearance {
     var isDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 }
@@ -443,7 +472,11 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
     /// True while a drag that began on the grip lasts.
     private(set) var isDraggedByGrip = false
     private let tab: StackTabBar.Tab
-    private let isActive: Bool
+    let isActive: Bool
+    /// The line between this tab and the next.
+    private let divider = DividerView()
+    /// Called when the mouse enters or leaves the tab.
+    var onHover: (() -> Void)?
     /// True for the copy that follows the mouse while the tab is dragged.
     private let isLifted: Bool
     private let fill = TabFill()
@@ -466,7 +499,7 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
         // Dark text reads best on the full pastel of a selected colored tab.
         // The other tabs show their color faintly, so their text is the usual muted gray.
         let textColor: NSColor = if isActive || lifted {
-            tab.color != nil ? NSColor.black.withAlphaComponent(0.85) : .labelColor
+            tab.color.map { $0.text.withAlphaComponent(0.9) } ?? .labelColor
         } else {
             .secondaryLabelColor
         }
@@ -493,6 +526,9 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
         addSubview(fill)
         addSubview(content)
         addSubview(grip)
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.isHidden = true
+        addSubview(divider)
         // The name stays centered in the tab, unless it is too long to fit beside the grip.
         let centered = content.centerXAnchor.constraint(equalTo: centerXAnchor)
         centered.priority = .defaultLow
@@ -509,6 +545,11 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
             content.trailingAnchor.constraint(lessThanOrEqualTo: grip.leadingAnchor, constant: -4),
             grip.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             grip.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // In the middle of the gap to the next tab.
+            divider.centerXAnchor.constraint(equalTo: trailingAnchor, constant: 1),
+            divider.centerYAnchor.constraint(equalTo: centerYAnchor),
+            divider.widthAnchor.constraint(equalToConstant: 1),
+            divider.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.5),
         ])
         hoverChanged()
     }
@@ -530,6 +571,13 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
             isHovered ? .hover : .none
         }
         grip.alphaValue = isHovered || isLifted ? 1 : 0
+        onHover?()
+    }
+
+    /// Shows the line between this tab and the next.
+    var showsDivider: Bool {
+        get { !divider.isHidden }
+        set { divider.isHidden = !newValue }
     }
 
     override func mouseDown(with event: NSEvent) {

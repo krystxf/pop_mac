@@ -2,23 +2,24 @@ import AppKit
 import PopCore
 
 extension TabColor {
-    /// The two pastel stops of the color's gradient, from left to right.
+    /// The two stops of the color's gradient, from left to right, close to the system colors.
     ///
     /// The second stop shifts the hue a little, so the tab has a soft sheen, not a flat fill.
     var stops: (NSColor, NSColor) {
         switch self {
-        case .rose: (.hex(0xF6C1CC), .hex(0xF8D3C6))
-        case .peach: (.hex(0xF9CDAF), .hex(0xF8DEB2))
-        case .butter: (.hex(0xF4E3A1), .hex(0xE9EDB0))
-        case .mint: (.hex(0xBBE5CB), .hex(0xC3E9DD))
-        case .aqua: (.hex(0xB3E3E0), .hex(0xBEDDEE))
-        case .sky: (.hex(0xBBD6F5), .hex(0xC9D4F6))
-        case .lavender: (.hex(0xD4CAF3), .hex(0xE2C9F0))
-        case .lilac: (.hex(0xEAC6E5), .hex(0xF3CDDA))
+        case .red: (.hex(0xFF453A), .hex(0xFF6A4D))
+        case .orange: (.hex(0xFF9F0A), .hex(0xFFB83D))
+        case .yellow: (.hex(0xFFD60A), .hex(0xEDE23B))
+        case .green: (.hex(0x30D158), .hex(0x3DD68C))
+        case .teal: (.hex(0x40C8E0), .hex(0x4AAFF0))
+        case .blue: (.hex(0x0A84FF), .hex(0x5B7BFF))
+        case .purple: (.hex(0xBF5AF2), .hex(0xD95FE0))
+        case .pink: (.hex(0xFF375F), .hex(0xFF5A8C))
         }
     }
 
-    var name: String { rawValue.capitalized }
+    /// Black or white, whichever reads better on the color.
+    var text: NSColor { stops.0.contrastingText }
 
     /// The gradient's colors, at `alpha`.
     func gradient(alpha: CGFloat) -> [NSColor] {
