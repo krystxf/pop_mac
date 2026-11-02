@@ -68,6 +68,12 @@ enum Spaces {
     }
 
     static var activeSpace: UInt64 { CGSGetActiveSpace(connection) }
+
+    /// The Spaces in view: the current Space of each display.
+    static func inView() -> Set<UInt64> {
+        let current = Set(currentSpaces().values)
+        return current.isEmpty ? [activeSpace] : current
+    }
 }
 
 /// Functions of the private SkyLight framework, looked up at run time.

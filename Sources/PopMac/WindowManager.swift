@@ -992,7 +992,9 @@ final class WindowManager {
             frame.y -= autoTiler.forest.tabHeight
             frame.height += autoTiler.forest.tabHeight
         }
-        let space = Spaces.space(of: id) ?? actualKey(of: id)?.space ?? 0
+        // Checked against the window's display: after a window crosses displays, macOS
+        // can still report the old display's Space.
+        let space = actualKey(of: id)?.space ?? Spaces.space(of: id) ?? Spaces.activeSpace
         hint.show(around: frame, of: id, on: space)
         tabs.reorder(above: id)
         return true

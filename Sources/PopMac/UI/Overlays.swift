@@ -236,6 +236,17 @@ final class HintWindow: ShapeWindow {
     }
 }
 
+extension NSWindow {
+    /// True if the window is ordered in on a Space that some display shows now.
+    ///
+    /// `isOnActiveSpace` is not used: with a Space per display, AppKit does not say
+    /// whether the current Space of another display counts as active.
+    var isOnSpaceInView: Bool {
+        guard isVisible, let space = Spaces.space(of: CGWindowID(windowNumber)) else { return false }
+        return Spaces.inView().contains(space)
+    }
+}
+
 /// One outline per Space, around the focused window.
 ///
 /// Each outline stays on its Space. A switch of Spaces slides it in and out with
@@ -265,14 +276,14 @@ final class Outlines {
 
     /// Hides the outlines on the Spaces in view. The outlines of other Spaces stay for their return.
     func hide() {
-        for outline in outlines.values where outline.isOnActiveSpace {
+        for outline in outlines.values where outline.isOnSpaceInView {
             outline.disappear()
         }
     }
 
     /// Draws the outline of `space` around a window on it. Only one outline shows on the Spaces in view.
     func show(around rect: Rect, of window: WindowID, on space: SpaceID) {
-        for (other, outline) in outlines where other != space && outline.isOnActiveSpace {
+        for (other, outline) in outlines where other != space && outline.isOnSpaceInView {
             outline.disappear()
         }
         let outline = outlines[space] ?? {

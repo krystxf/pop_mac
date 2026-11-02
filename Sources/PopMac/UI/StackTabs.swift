@@ -160,7 +160,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
             track.layer?.cornerRadius = radius
         }
         // A bar left on another Space, as when its stack moved there, comes to this one.
-        if isVisible, !isOnActiveSpace { orderOut(nil) }
+        if isVisible, !isOnSpaceInView { orderOut(nil) }
         appear(at: Displays.toCocoa(frame))
         order(.above, relativeTo: Int(window))
     }
