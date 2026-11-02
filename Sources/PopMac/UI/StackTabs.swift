@@ -390,7 +390,10 @@ private class BarItem: NSView {
 }
 
 /// The pill behind a tab: raised for the selected tab, faint under the mouse,
-/// and a left-to-right pastel gradient for a colored tab.
+/// and a left-to-right gradient for a colored tab.
+///
+/// A colored tab shows its color faintly at the left end. Selected, a full layer of the
+/// color covers the tab. A soft-edged mask slides it in from the left, and out again.
 private final class TabFill: NSView {
     enum Style: Equatable {
         case none
@@ -404,12 +407,21 @@ private final class TabFill: NSView {
 
     /// A change blends the fill smoothly into the new style.
     var style = Style.none {
-        didSet { if style != oldValue { apply(animated: window != nil && Motion.isOn, from: oldValue) } }
+        didSet { if style != oldValue { apply(animated: window != nil && Motion.isOn) } }
     }
+
+    /// The full color of a selected colored tab, over the faint color.
+    private let overlay = CAGradientLayer()
+    /// The overlay's mask: opaque, with a soft right edge. It slides to uncover the overlay.
+    private let wipe = CAGradientLayer()
+    /// True while the wipe uncovers the overlay.
+    private var isRevealed = false
 
     private static let raisedFill = NSColor(name: nil) { $0.isDark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 1, alpha: 0.9) }
     private static let hoverFill = NSColor(name: nil) { $0.isDark ? NSColor(white: 1, alpha: 0.07) : NSColor(white: 0, alpha: 0.05) }
     private static let edge = NSColor(name: nil) { $0.isDark ? NSColor(white: 1, alpha: 0.12) : NSColor(white: 0, alpha: 0.08) }
+    /// The wipe is this much wider than the tab. The extra width is its soft edge.
+    private static let wipeScale: CGFloat = 1.3
 
     init() {
         super.init(frame: .zero)
@@ -421,6 +433,15 @@ private final class TabFill: NSView {
         layer.shadowOffset = CGSize(width: 0, height: -1)
         layer.shadowRadius = 2
         layer.shadowColor = NSColor.black.cgColor
+
+        overlay.startPoint = CGPoint(x: 0, y: 0.5)
+        overlay.endPoint = CGPoint(x: 1, y: 0.5)
+        wipe.startPoint = CGPoint(x: 0, y: 0.5)
+        wipe.endPoint = CGPoint(x: 1, y: 0.5)
+        wipe.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        wipe.locations = [0, NSNumber(value: Double(1 / Self.wipeScale)), 1]
+        overlay.mask = wipe
+        layer.addSublayer(overlay)
     }
 
     required init?(coder _: NSCoder) { nil }
@@ -432,25 +453,35 @@ private final class TabFill: NSView {
 
     override func layout() {
         super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         layer?.cornerRadius = bounds.height / 2
+        overlay.frame = bounds
+        overlay.cornerRadius = bounds.height / 2
+        wipe.frame = wipeFrame(revealed: isRevealed)
+        CATransaction.commit()
+    }
+
+    /// Covering the tab, with the soft edge past its right end. Hidden, fully left of the tab.
+    private func wipeFrame(revealed: Bool) -> CGRect {
+        let width = bounds.width * Self.wipeScale
+        return CGRect(x: revealed ? 0 : -width, y: 0, width: width, height: bounds.height)
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        apply(animated: false, from: style)
+        apply(animated: false)
     }
 
-    private func apply(animated: Bool, from old: Style) {
+    private func apply(animated: Bool) {
         guard let layer = layer as? CAGradientLayer else { return }
-        // Every style has three stops, so one style blends into the next. A colored tab
-        // that is not selected has its color at the left end, fading out by a third of the
-        // tab. Selected, the color fills the tab: the fade's edge has slid off the right end.
+        // Every style has three stops, so one style blends into the next.
         let (colors, locations, raised): ([NSColor], [NSNumber], Bool) = switch style {
         case .none: ([.clear, .clear, .clear], [0, 0.5, 1], false)
         case .hover: ([Self.hoverFill, Self.hoverFill, Self.hoverFill], [0, 0.5, 1], false)
         case .raised: ([Self.raisedFill, Self.raisedFill, Self.raisedFill], [0, 0.5, 1], true)
-        case let .colored(color, raised):
-            (color.fill(alpha: raised ? 0.8 : 0.35), raised ? [0, 1, 1] : [0, 0, 0.3], raised)
+        // The color at the left end only, fading out by a third of the tab, so it does not draw the eye.
+        case let .colored(color, raised): (color.fill(alpha: 0.35), [0, 0, 0.3], raised)
         }
         var values: [String: Any] = [
             "locations": locations,
@@ -462,40 +493,37 @@ private final class TabFill: NSView {
             values["borderColor"] = Self.edge.cgColor
         }
 
-        // A colored tab that becomes selected first slides its color across the tab, then
-        // brightens it. One that is no longer selected first dims, then slides back.
-        let step = Motion.duration
-        var delays: [String: CFTimeInterval] = [:]
-        if case let .colored(before, wasRaised) = old, case let .colored(after, isRaised) = style,
-           before == after, wasRaised != isRaised
-        {
-            for key in values.keys {
-                let slides = key == "locations"
-                delays[key] = slides == isRaised ? 0 : step
-            }
-        }
-
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let now = CACurrentMediaTime()
+        if case let .colored(color, _) = style {
+            overlay.colors = [color.stops.0.withAlphaComponent(0.8).cgColor, color.stops.1.withAlphaComponent(0.8).cgColor]
+        }
+        let reveal = if case .colored(_, true) = style {
+            true
+        } else {
+            false
+        }
         for (key, value) in values {
-            if animated {
-                // From where a running animation is now, so a quick change of mind stays smooth.
-                let animation = CABasicAnimation(keyPath: key)
-                animation.fromValue = (layer.presentation() ?? layer).value(forKeyPath: key)
-                animation.toValue = value
-                animation.duration = step
-                animation.timingFunction = Motion.timing
-                if let delay = delays[key], delay > 0 {
-                    // The old value shows until the step begins.
-                    animation.beginTime = now + delay
-                    animation.fillMode = .backwards
-                }
-                layer.add(animation, forKey: key)
-            }
+            if animated { animate(layer, key, to: value) }
             layer.setValue(value, forKeyPath: key)
         }
+        if reveal != isRevealed {
+            isRevealed = reveal
+            let frame = wipeFrame(revealed: reveal)
+            if animated { animate(wipe, "position", to: CGPoint(x: frame.midX, y: frame.midY)) }
+            wipe.frame = frame
+        }
         CATransaction.commit()
+    }
+
+    /// Animates `key` of `layer` from where it is now, so a quick change of mind stays smooth.
+    private func animate(_ layer: CALayer, _ key: String, to value: Any) {
+        let animation = CABasicAnimation(keyPath: key)
+        animation.fromValue = (layer.presentation() ?? layer).value(forKeyPath: key)
+        animation.toValue = value
+        animation.duration = Motion.duration * 1.4
+        animation.timingFunction = Motion.timing
+        layer.add(animation, forKey: key)
     }
 }
 
