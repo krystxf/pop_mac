@@ -72,7 +72,14 @@ struct TilingE2ETests {
         let area = try session.app.workArea()
         let a = try session.app.open("A")
         let b = try session.app.open("B")
-        let originalFrame = try #require(E2E.frame(of: b))
+        // The app can acknowledge creation before the window server publishes its frame.
+        var initialFrame: Rect?
+        let frameAvailable = try await waitUntil(timeout: .seconds(5)) {
+            initialFrame = E2E.frame(of: b)
+            return initialFrame != nil
+        }
+        try #require(frameAvailable, "Window B did not appear in the window server")
+        let originalFrame = try #require(initialFrame)
         try session.startPopMac()
         try await session.expectFrames([a: area.half(.left), b: area.half(.right)])
         try await session.expectKeyWindow(b)
