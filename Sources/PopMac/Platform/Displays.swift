@@ -107,6 +107,14 @@ enum Displays {
     }
 
     /// The ids of every window that is visible on screen, from front to back.
+    /// Every window that exists, on every Space, minimized or not.
+    static func allWindowIDs() -> Set<CGWindowID> {
+        guard let info = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        return Set(info.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value })
+    }
+
     static func onScreenWindowIDs() -> [CGWindowID] {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
