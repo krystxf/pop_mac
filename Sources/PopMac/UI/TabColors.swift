@@ -21,9 +21,9 @@ extension TabColor {
     /// Black or white, whichever reads better on the color.
     var text: NSColor { stops.0.contrastingText }
 
-    /// The gradient's colors, at `alpha`.
-    func gradient(alpha: CGFloat) -> [NSColor] {
-        [stops.0.withAlphaComponent(alpha), stops.1.withAlphaComponent(alpha)]
+    /// The three stops of a tab's fill: the gradient at `alpha`, then the end of a fade to clear.
+    func fill(alpha: CGFloat) -> [NSColor] {
+        [stops.0.withAlphaComponent(alpha), stops.1.withAlphaComponent(alpha), stops.1.withAlphaComponent(0)]
     }
 }
 

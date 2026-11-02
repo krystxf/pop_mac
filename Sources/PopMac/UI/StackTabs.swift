@@ -402,9 +402,9 @@ private final class TabFill: NSView {
         case colored(TabColor, raised: Bool)
     }
 
-    /// A change fades the fill smoothly into the new style.
+    /// A change blends the fill smoothly into the new style.
     var style = Style.none {
-        didSet { if style != oldValue { apply(animated: window != nil && Motion.isOn) } }
+        didSet { if style != oldValue { apply(animated: window != nil && Motion.isOn, from: oldValue) } }
     }
 
     private static let raisedFill = NSColor(name: nil) { $0.isDark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 1, alpha: 0.9) }
@@ -437,20 +437,20 @@ private final class TabFill: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        apply(animated: false)
+        apply(animated: false, from: style)
     }
 
-    private func apply(animated: Bool) {
+    private func apply(animated: Bool, from old: Style) {
         guard let layer = layer as? CAGradientLayer else { return }
-        // Every style has two stops, so one style blends into the next.
+        // Every style has three stops, so one style blends into the next. A colored tab
+        // that is not selected has its color at the left end, fading out by a third of the
+        // tab. Selected, the color fills the tab: the fade's edge has slid off the right end.
         let (colors, locations, raised): ([NSColor], [NSNumber], Bool) = switch style {
-        case .none: ([.clear, .clear], [0, 1], false)
-        case .hover: ([Self.hoverFill, Self.hoverFill], [0, 1], false)
-        case .raised: ([Self.raisedFill, Self.raisedFill], [0, 1], true)
-        case let .colored(color, true): (color.gradient(alpha: 0.8), [0, 1], true)
-        // The other tabs show their color at the left end only, fading out to the track,
-        // so they do not draw the eye.
-        case let .colored(color, false): ([color.stops.0.withAlphaComponent(0.35), color.stops.1.withAlphaComponent(0)], [0, 0.3], false)
+        case .none: ([.clear, .clear, .clear], [0, 0.5, 1], false)
+        case .hover: ([Self.hoverFill, Self.hoverFill, Self.hoverFill], [0, 0.5, 1], false)
+        case .raised: ([Self.raisedFill, Self.raisedFill, Self.raisedFill], [0, 0.5, 1], true)
+        case let .colored(color, raised):
+            (color.fill(alpha: raised ? 0.8 : 0.35), raised ? [0, 1, 1] : [0, 0, 0.3], raised)
         }
         var values: [String: Any] = [
             "locations": locations,
@@ -461,16 +461,36 @@ private final class TabFill: NSView {
             values["colors"] = colors.map(\.cgColor)
             values["borderColor"] = Self.edge.cgColor
         }
+
+        // A colored tab that becomes selected first slides its color across the tab, then
+        // brightens it. One that is no longer selected first dims, then slides back.
+        let step = Motion.duration
+        var delays: [String: CFTimeInterval] = [:]
+        if case let .colored(before, wasRaised) = old, case let .colored(after, isRaised) = style,
+           before == after, wasRaised != isRaised
+        {
+            for key in values.keys {
+                let slides = key == "locations"
+                delays[key] = slides == isRaised ? 0 : step
+            }
+        }
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        let now = CACurrentMediaTime()
         for (key, value) in values {
             if animated {
                 // From where a running animation is now, so a quick change of mind stays smooth.
                 let animation = CABasicAnimation(keyPath: key)
                 animation.fromValue = (layer.presentation() ?? layer).value(forKeyPath: key)
                 animation.toValue = value
-                animation.duration = Motion.duration
+                animation.duration = step
                 animation.timingFunction = Motion.timing
+                if let delay = delays[key], delay > 0 {
+                    // The old value shows until the step begins.
+                    animation.beginTime = now + delay
+                    animation.fillMode = .backwards
+                }
                 layer.add(animation, forKey: key)
             }
             layer.setValue(value, forKeyPath: key)
