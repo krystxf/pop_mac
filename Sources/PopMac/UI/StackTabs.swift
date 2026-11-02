@@ -42,6 +42,12 @@ final class StackTabBar: NSPanel, GlidingWindow {
         var color: TabColor?
         /// True if the user gave the tab a name.
         var isRenamed = false
+
+        /// The icon is left out: it belongs to the window's app, so it stays with the window.
+        /// `NSRunningApplication` may return a new image each time, which would rebuild the bar.
+        static func == (lhs: Tab, rhs: Tab) -> Bool {
+            lhs.id == rhs.id && lhs.title == rhs.title && lhs.color == rhs.color && lhs.isRenamed == rhs.isRenamed
+        }
     }
 
     /// The stack's selected window, which the bar stays above.
@@ -102,7 +108,14 @@ final class StackTabBar: NSPanel, GlidingWindow {
 
     func update(tabs: [Tab], active: WindowID, frame: Rect, above window: WindowID) {
         // A rebuild would remove the name field. The next update after the rename rebuilds the bar.
-        if !isRenaming, shown?.tabs != tabs || shown?.active != active {
+        if !isRenaming, shown?.tabs == tabs, shown?.active != active {
+            // The same tabs with another one selected: the tabs change their look smoothly.
+            shown = (tabs, active)
+            for case let button as TabButton in tabsView.arrangedSubviews {
+                button.isActive = button.id == active
+            }
+            updateDividers()
+        } else if !isRenaming, shown?.tabs != tabs || shown?.active != active {
             shown = (tabs, active)
             dropGhost()
             for view in tabsView.arrangedSubviews {
@@ -389,8 +402,9 @@ private final class TabFill: NSView {
         case colored(TabColor, raised: Bool)
     }
 
+    /// A change fades the fill smoothly into the new style.
     var style = Style.none {
-        didSet { if style != oldValue { apply() } }
+        didSet { if style != oldValue { apply(animated: window != nil && Motion.isOn) } }
     }
 
     private static let raisedFill = NSColor(name: nil) { $0.isDark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 1, alpha: 0.9) }
@@ -423,31 +437,45 @@ private final class TabFill: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        apply()
+        apply(animated: false)
     }
 
-    private func apply() {
+    private func apply(animated: Bool) {
         guard let layer = layer as? CAGradientLayer else { return }
-        let (colors, raised): ([NSColor], Bool) = switch style {
-        case .none: ([.clear, .clear], false)
-        case .hover: ([Self.hoverFill, Self.hoverFill], false)
-        case .raised: ([Self.raisedFill, Self.raisedFill], true)
-        case let .colored(color, true): (color.gradient(alpha: 0.8), true)
+        // Every style has two stops, so one style blends into the next.
+        let (colors, locations, raised): ([NSColor], [NSNumber], Bool) = switch style {
+        case .none: ([.clear, .clear], [0, 1], false)
+        case .hover: ([Self.hoverFill, Self.hoverFill], [0, 1], false)
+        case .raised: ([Self.raisedFill, Self.raisedFill], [0, 1], true)
+        case let .colored(color, true): (color.gradient(alpha: 0.8), [0, 1], true)
         // The other tabs show their color at the left end only, fading out to the track,
         // so they do not draw the eye.
-        case let .colored(color, false): ([color.stops.0.withAlphaComponent(0.35), color.stops.1.withAlphaComponent(0)], false)
+        case let .colored(color, false): ([color.stops.0.withAlphaComponent(0.35), color.stops.1.withAlphaComponent(0)], [0, 0.3], false)
         }
-        if case .colored(_, false) = style {
-            layer.locations = [0, 0.3]
-        } else {
-            layer.locations = nil
-        }
+        var values: [String: Any] = [
+            "locations": locations,
+            "borderWidth": raised ? 0.5 : 0,
+            "shadowOpacity": Float(raised ? 0.25 : 0),
+        ]
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer.colors = colors.map(\.cgColor)
-            layer.borderColor = Self.edge.cgColor
+            values["colors"] = colors.map(\.cgColor)
+            values["borderColor"] = Self.edge.cgColor
         }
-        layer.borderWidth = raised ? 0.5 : 0
-        layer.shadowOpacity = raised ? 0.25 : 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (key, value) in values {
+            if animated {
+                // From where a running animation is now, so a quick change of mind stays smooth.
+                let animation = CABasicAnimation(keyPath: key)
+                animation.fromValue = (layer.presentation() ?? layer).value(forKeyPath: key)
+                animation.toValue = value
+                animation.duration = Motion.duration
+                animation.timingFunction = Motion.timing
+                layer.add(animation, forKey: key)
+            }
+            layer.setValue(value, forKeyPath: key)
+        }
+        CATransaction.commit()
     }
 }
 
@@ -472,7 +500,15 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
     /// True while a drag that began on the grip lasts.
     private(set) var isDraggedByGrip = false
     private let tab: StackTabBar.Tab
-    let isActive: Bool
+    var id: WindowID { tab.id }
+    /// True for the stack's selected tab. A change restyles the tab smoothly.
+    var isActive: Bool {
+        didSet {
+            guard isActive != oldValue else { return }
+            applyText(animated: true)
+            hoverChanged()
+        }
+    }
     /// The line between this tab and the next.
     private let divider = DividerView()
     /// Called when the mouse enters or leaves the tab.
@@ -496,16 +532,6 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
         label = NSTextField(labelWithString: tab.title.isEmpty ? "Untitled" : tab.title)
         super.init()
 
-        // Dark text reads best on the full pastel of a selected colored tab.
-        // The other tabs show their color faintly, so their text is the usual muted gray.
-        let textColor: NSColor = if isActive || lifted {
-            tab.color.map { $0.text.withAlphaComponent(0.9) } ?? .labelColor
-        } else {
-            .secondaryLabelColor
-        }
-
-        label.font = .systemFont(ofSize: 11, weight: isActive ? .medium : .regular)
-        label.textColor = textColor
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -519,7 +545,6 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
 
         grip.image = NSImage(systemSymbolName: "circle.grid.3x3.fill", accessibilityDescription: "Reorder tab")
         grip.symbolConfiguration = .init(pointSize: 8, weight: .regular)
-        grip.contentTintColor = textColor.withAlphaComponent(0.6)
         grip.translatesAutoresizingMaskIntoConstraints = false
         grip.toolTip = "Drag to reorder the tab"
 
@@ -551,6 +576,7 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
             divider.widthAnchor.constraint(equalToConstant: 1),
             divider.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.5),
         ])
+        applyText(animated: false)
         hoverChanged()
     }
 
@@ -559,6 +585,30 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
     /// A copy of the tab, lifted, to follow the mouse.
     func copy() -> TabButton {
         TabButton(tab: tab, isActive: isActive, lifted: true)
+    }
+
+    /// Sets the name's color and weight, and the grip's color, for the tab's state.
+    ///
+    /// With `animated`, the old text fades into the new.
+    private func applyText(animated: Bool) {
+        // Black or white text reads best on the full color of a selected colored tab.
+        // The other tabs show their color faintly, so their text is the usual muted gray.
+        let textColor: NSColor = if isActive || isLifted {
+            tab.color.map { $0.text.withAlphaComponent(0.9) } ?? .labelColor
+        } else {
+            .secondaryLabelColor
+        }
+        if animated, Motion.isOn {
+            label.wantsLayer = true
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = Motion.duration
+            fade.timingFunction = Motion.timing
+            label.layer?.add(fade, forKey: "fade")
+        }
+        label.font = .systemFont(ofSize: 11, weight: isActive ? .medium : .regular)
+        label.textColor = textColor
+        grip.contentTintColor = textColor.withAlphaComponent(0.6)
     }
 
     override func hoverChanged() {
@@ -570,7 +620,15 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
         } else {
             isHovered ? .hover : .none
         }
-        grip.alphaValue = isHovered || isLifted ? 1 : 0
+        let gripAlpha: CGFloat = isHovered || isLifted ? 1 : 0
+        if window != nil, Motion.isOn {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Motion.fadeDuration
+                grip.animator().alphaValue = gripAlpha
+            }
+        } else {
+            grip.alphaValue = gripAlpha
+        }
         onHover?()
     }
 
