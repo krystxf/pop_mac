@@ -414,7 +414,8 @@ private final class TabFill: NSView {
         case .none: ([.clear, .clear], false)
         case .hover: ([Self.hoverFill, Self.hoverFill], false)
         case .raised: ([Self.raisedFill, Self.raisedFill], true)
-        case let .colored(color, raised): (color.gradient(alpha: raised ? 0.8 : 0.6), raised)
+        // The other tabs show only a hint of their color, so they do not draw the eye.
+        case let .colored(color, raised): (color.gradient(alpha: raised ? 0.8 : 0.28), raised)
         }
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer.colors = colors.map(\.cgColor)
@@ -455,11 +456,12 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
         label = NSTextField(labelWithString: tab.title.isEmpty ? "Untitled" : tab.title)
         super.init()
 
-        // Dark text reads best on the pastel colors.
-        let textColor: NSColor = if tab.color != nil {
-            NSColor.black.withAlphaComponent(isActive || lifted ? 0.85 : 0.7)
+        // Dark text reads best on the full pastel of a selected colored tab.
+        // The other tabs show their color faintly, so their text is the usual muted gray.
+        let textColor: NSColor = if isActive || lifted {
+            tab.color != nil ? NSColor.black.withAlphaComponent(0.85) : .labelColor
         } else {
-            isActive || lifted ? .labelColor : .secondaryLabelColor
+            .secondaryLabelColor
         }
 
         label.font = .systemFont(ofSize: 11, weight: isActive ? .medium : .regular)
