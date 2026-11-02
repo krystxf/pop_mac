@@ -891,8 +891,10 @@ final class WindowManager {
         let current = Set(layout.trees.map(\.key))
         layout.trees += savedTrees.filter { !current.contains($0.key) }
         // Labels of windows that closed drop out. Windows on other Spaces still exist.
-        let alive = Displays.allWindowIDs()
-        tabLabels = tabLabels.filter { alive.contains($0.key) }
+        // A failed scan keeps every label, instead of dropping them all.
+        if let alive = Displays.allWindowIDs() {
+            tabLabels = tabLabels.filter { alive.contains($0.key) }
+        }
         layout.tabs = tabLabels.values.sorted { $0.window < $1.window }
         do {
             try layout.save()
