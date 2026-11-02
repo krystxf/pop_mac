@@ -172,7 +172,8 @@ final class HintWindow: ShapeWindow {
 
     init() {
         super.init(level: .normal)
-        collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary, .moveToActiveSpace]
+        // The outline stays on the Space where it first showed, so it slides with that Space.
+        collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         if #available(macOS 26, *), let contentView {
             let glass = NSGlassEffectView(frame: contentView.bounds)
             glass.autoresizingMask = [.width, .height]
@@ -231,6 +232,63 @@ final class HintWindow: ShapeWindow {
         if target != window {
             target = window
             WindowReorders.watch([window])
+        }
+    }
+}
+
+/// One outline per Space, around the focused window.
+///
+/// Each outline stays on its Space. A switch of Spaces slides it in and out with
+/// its windows, so it never has to fade in after them.
+@MainActor
+final class Outlines {
+    private var outlines: [SpaceID: HintWindow] = [:]
+    private var look: (color: NSColor, width: Double, radius: Double)?
+
+    func style(color: NSColor, width: Double, radius: Double) {
+        look = (color, width, radius)
+        for outline in outlines.values {
+            outline.style(color: color, width: width, radius: radius)
+        }
+    }
+
+    /// True if an outline shows around `window` now.
+    func surrounds(_ window: WindowID) -> Bool {
+        outlines.values.contains { $0.surrounds(window) }
+    }
+
+    func reorder(after window: WindowID) {
+        for outline in outlines.values {
+            outline.reorder(after: window)
+        }
+    }
+
+    /// Hides the outlines on the Spaces in view. The outlines of other Spaces stay for their return.
+    func hide() {
+        for outline in outlines.values where outline.isOnActiveSpace {
+            outline.disappear()
+        }
+    }
+
+    /// Draws the outline of `space` around a window on it. Only one outline shows on the Spaces in view.
+    func show(around rect: Rect, of window: WindowID, on space: SpaceID) {
+        for (other, outline) in outlines where other != space && outline.isOnActiveSpace {
+            outline.disappear()
+        }
+        let outline = outlines[space] ?? {
+            let outline = HintWindow()
+            if let look { outline.style(color: look.color, width: look.width, radius: look.radius) }
+            outlines[space] = outline
+            return outline
+        }()
+        outline.show(around: rect, of: window)
+    }
+
+    /// Closes the outlines of Spaces that no longer exist.
+    func keep(spaces: Set<SpaceID>) {
+        for (space, outline) in outlines where !spaces.contains(space) {
+            outline.orderOut(nil)
+            outlines.removeValue(forKey: space)
         }
     }
 }

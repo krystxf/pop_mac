@@ -30,13 +30,15 @@ final class WindowManager {
     private(set) var displays: [Display] = Displays.all()
 
     let overlay = OverlayWindow()
-    let hint = HintWindow()
+    let hint = Outlines()
     /// The dark layers over the wallpaper, by display.
     private var wallpaperDims: [MonitorID: WallpaperDimWindow] = [:]
     let animator = WindowAnimator()
     private var hintScheduled = false
     /// When the outline started to wait for its window's real frame.
     private var hintWaitStart: Date?
+    /// When the Space last changed. While a switch settles, the outline does not hide.
+    private var spaceChangeTime = Date.distantPast
     private let tabs = StackTabsController()
     private var stacksScheduled = false
     /// When the drop preview of a dragged stack was last updated.
@@ -578,7 +580,9 @@ final class WindowManager {
 
     private func onSpaceChanged() {
         exitTileMode()
-        hint.hide()
+        // Each Space keeps its own outline, which slides in and out with the Space.
+        spaceChangeTime = Date()
+        hint.keep(spaces: Set(Spaces.allSpaces().values.joined()))
         scheduleFocusCheck()
         guard !spaceScanScheduled else { return }
         spaceScanScheduled = true
@@ -950,27 +954,37 @@ final class WindowManager {
     }
 
     private func updateHint() {
-        guard settings.activeHint, tileMode == nil,
-              let id = prevFocused[1], let window = windows[id],
+        guard settings.activeHint, tileMode == nil else {
+            hint.hide()
+            return
+        }
+        if showHint() { return }
+        if Date().timeIntervalSince(spaceChangeTime) < 0.7 {
+            // While a Space switch settles, the frontmost app and the frames can still be the
+            // old Space's. Hiding the outline then would make it flash. Look again a moment later.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                MainActor.assumeIsolated { self?.scheduleHint() }
+            }
+        } else {
+            hint.hide()
+        }
+    }
+
+    /// Shows the outline around the focused window. Returns false if there is none to show now.
+    private func showHint() -> Bool {
+        guard let id = prevFocused[1], let window = windows[id],
               NSWorkspace.shared.frontmostApplication.flatMap(Processes.pid(of:)) == window.pid,
               // The window server knows the frame without asking the app, which may be busy.
               // A window that glides to a new frame has its outline glide there too.
               var frame = Displays.onScreenFrame(of: id).map({ animator.target(of: id) ?? $0 }), !window.isFullscreen
-        else {
-            hint.hide()
-            return
-        }
+        else { return false }
         // A hidden outline waits for its window to arrive, instead of appearing around an empty tile.
-        if animator.target(of: id) != nil, !hint.surrounds(id) {
-            hint.hide()
-            return
-        }
+        if animator.target(of: id) != nil, !hint.surrounds(id) { return false }
         // In Mission Control and App Exposé, and while they close, the window server
         // reports the frame of the window's thumbnail. Wait for the real frame.
         if animator.target(of: id) == nil, let real = window.frame, !real.approximatelyEquals(frame, tolerance: 2) {
-            hint.hide()
             retryHint()
-            return
+            return false
         }
         hintWaitStart = nil
         if let autoTiler, autoTiler.findStack(id) != nil {
@@ -978,8 +992,10 @@ final class WindowManager {
             frame.y -= autoTiler.forest.tabHeight
             frame.height += autoTiler.forest.tabHeight
         }
-        hint.show(around: frame, of: id)
+        let space = Spaces.space(of: id) ?? actualKey(of: id)?.space ?? 0
+        hint.show(around: frame, of: id, on: space)
         tabs.reorder(above: id)
+        return true
     }
 
     /// Darkens the wallpaper of each display that shows exactly one window.
