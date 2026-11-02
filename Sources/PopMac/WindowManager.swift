@@ -226,9 +226,7 @@ final class WindowManager {
         }
     }
 
-    /// The system accent color, for the selected stack tab and, before macOS 26, the highlights.
-    ///
-    /// The color is resolved, so a new accent color counts as a change.
+    /// The system accent color, for the outline and the drop preview.
     private var accentColor: NSColor {
         NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .controlAccentColor
     }
@@ -1073,7 +1071,7 @@ final class WindowManager {
         } color: { [weak self] id, color in
             MainActor.assumeIsolated { self?.changeLabel(of: id) { $0.color = color } }
         }
-        tabs.sync(entries, color: accentColor, actions: actions)
+        tabs.sync(entries, actions: actions)
         scheduleHint()
     }
 
