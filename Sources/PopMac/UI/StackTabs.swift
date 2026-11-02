@@ -398,19 +398,18 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
         label = NSTextField(labelWithString: tab.title.isEmpty ? "Untitled" : tab.title)
         icon = NSImageView(image: tab.icon ?? NSImage())
 
-        // A colored tab shows its color instead of the accent color. The selected tab
-        // shows the color fully, the others faintly.
-        let gradient = tab.color.map { $0.gradient(alpha: isActive ? 0.95 : 0.4) }
+        // A colored tab shows its color instead of the accent color, with some glass
+        // showing through. The selected tab shows the color stronger than the others.
+        let gradient = tab.color.map { $0.gradient(alpha: isActive ? 0.8 : 0.6) }
         super.init(tint: isActive && tab.color == nil ? color : nil, gradient: gradient)
 
-        let textColor: NSColor = if isActive, tab.color != nil {
-            NSColor.black.withAlphaComponent(0.82)
+        // Dark text reads best on the pastel colors.
+        let textColor: NSColor = if tab.color != nil {
+            NSColor.black.withAlphaComponent(isActive ? 0.85 : 0.7)
         } else if isActive {
             color.contrastingText
         } else if #available(macOS 26, *) {
             .labelColor
-        } else if tab.color != nil {
-            NSColor.black.withAlphaComponent(0.82)
         } else {
             .white
         }
