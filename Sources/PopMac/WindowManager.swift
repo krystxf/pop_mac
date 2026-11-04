@@ -65,10 +65,10 @@ final class WindowManager {
     private var snapBackPending = Set<WindowID>()
     private var snapBackScheduled = false
     private var verifyScheduled = false
-    private var spaceChangeTime = Date.distantPast
-    private var spaceScan: DispatchWorkItem?
     /// Window-server frames can be translated across displays during a Space animation.
-    var isSwitchingSpaces: Bool { Date().timeIntervalSince(spaceChangeTime) < 0.7 }
+    private(set) var spaceSwitches = SpaceSwitchClock()
+    private var spaceScan: DispatchWorkItem?
+    var isSwitchingSpaces: Bool { spaceSwitches.isSwitching(at: ProcessInfo.processInfo.systemUptime) }
     private var departureTimer: Timer?
     /// How many checks in a row found each tiled window off screen.
     private var offscreenStrikes: [WindowID: Int] = [:]
@@ -582,11 +582,11 @@ final class WindowManager {
     // MARK: - Spaces and displays
 
     private func onSpaceChanged() {
-        spaceChangeTime = Date()
+        spaceSwitches.switched(at: ProcessInfo.processInfo.systemUptime)
         exitTileMode()
         hint.hide()
         scheduleFocusCheck()
-        mouse?.cancelGrab()
+        mouse?.spaceChanged()
         snapBackPending.removeAll()
         offscreenStrikes.removeAll()
         untiledStrikes.removeAll()
@@ -600,7 +600,7 @@ final class WindowManager {
             MainActor.assumeIsolated { self?.scanVisibleWindows() }
         }
         spaceScan = scan
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: scan)
+        DispatchQueue.main.asyncAfter(deadline: .now() + SpaceSwitchClock.quietPeriod, execute: scan)
     }
 
     /// Keeps the trees in step with windows that moved between Spaces.
@@ -659,7 +659,8 @@ final class WindowManager {
 
     /// Finds new windows on the visible Spaces, and fixes windows that changed Space.
     func scanVisibleWindows() {
-        guard !isSwitchingSpaces else {
+        // A window that the mouse drags across Spaces is placed by its drop, not by the scan.
+        guard !isSwitchingSpaces, mouse?.isBusy(generation: spaceSwitches.generation) != true else {
             scheduleSpaceScan()
             return
         }
@@ -1178,8 +1179,10 @@ final class WindowManager {
 
     /// Handles the end of a mouse drag or resize of a window.
     ///
-    /// - Parameter stack: True if the Super modifiers were held at the drop, so a drop on a window's center stacks.
-    func onGrabEnd(_ id: WindowID, original: Rect, stack: Bool = false) {
+    /// - Parameters:
+    ///   - cursor: The cursor at the mouse-up, which places a moved window.
+    ///   - stack: True if the Super modifiers were held at the drop, so a drop on a window's center stacks.
+    func onGrabEnd(_ id: WindowID, original: Rect, cursor: Point, stack: Bool = false) {
         overlay.hide()
         defer { scheduleHint() }
         guard let window = windows[id], let current = window.frame else { return }
@@ -1204,7 +1207,6 @@ final class WindowManager {
         if isResize {
             autoTiler.resizeByMouse(id, from: original, to: current)
         } else {
-            let cursor = Displays.cursor
             guard let display = Displays.display(at: cursor, in: displays) else { return }
             let key = currentKey(of: display)
             let previous = autoTiler.attached[id].map { autoTiler.forest.toplevel(of: $0).workspace }

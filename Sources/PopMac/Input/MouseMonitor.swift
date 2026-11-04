@@ -11,13 +11,10 @@ import PopCore
 final class MouseMonitor {
     private weak var manager: WindowManager?
     private var monitors: [Any] = []
-    /// Windows near the cursor at mouse-down, with their frames at that time.
-    private var candidates: [WindowID: Rect] = [:]
+    /// The windows near the cursor at mouse-down, and the drops that wait.
+    private var grab = GrabTracker()
     private var downTime = Date.distantPast
     private var dragged: WindowID?
-    private var receivedDrag = false
-    /// Invalidates delayed settle callbacks after a new click or a Space switch.
-    private var grabGeneration = 0
     private var lastCheck = Date.distantPast
     private var previewTimer: Timer?
 
@@ -43,17 +40,26 @@ final class MouseMonitor {
     }
 
     private func mouseDown() {
-        cancelGrab()
+        stopPreview()
         downTime = Date()
-        candidates = SpaceMover.isMoving || manager?.isSwitchingSpaces == true ? [:] : windowsNearCursor()
+        grab.mouseDown(candidates: SpaceMover.isMoving ? [:] : windowsNearCursor())
     }
 
-    /// A Space switch invalidates both the current grab and any delayed mouse-up work.
-    func cancelGrab() {
-        grabGeneration += 1
-        candidates = [:]
+    /// True while the user drags a window, or its drop waits to be handled.
+    func isBusy(generation: Int) -> Bool {
+        grab.isBusy(generation: generation, buttonDown: NSEvent.pressedMouseButtons & 1 != 0)
+    }
+
+    /// A Space switch makes the window server's frames unreliable for a moment.
+    ///
+    /// The grab goes on, because a dragged window travels to the new Space with the mouse.
+    /// The drop preview stops, and starts again once the switch settles.
+    func spaceChanged() {
+        stopPreview()
+    }
+
+    private func stopPreview() {
         dragged = nil
-        receivedDrag = false
         previewTimer?.invalidate()
         previewTimer = nil
         manager?.overlay.hide()
@@ -61,17 +67,20 @@ final class MouseMonitor {
 
     /// Starts the drop preview once one of the candidates moves without a size change.
     private func mouseDragged() {
-        guard manager?.isSwitchingSpaces != true, !SpaceMover.isMoving else {
-            cancelGrab()
+        if SpaceMover.isMoving {
+            // Pop Mac's own drag, which moves a window to another Space.
+            grab.cancel()
+            stopPreview()
             return
         }
-        receivedDrag = true
-        guard dragged == nil, !candidates.isEmpty, Date().timeIntervalSince(lastCheck) > 0.1, manager != nil else { return }
+        grab.mouseDragged()
+        guard let manager, !manager.isSwitchingSpaces, dragged == nil, !grab.candidates.isEmpty,
+              Date().timeIntervalSince(lastCheck) > 0.1 else { return }
         lastCheck = Date()
 
         // The window server's frames: the app of a dragged window is busy and slow to answer.
         let frames = Dictionary(Displays.onScreenFrames().map { ($0.id, $0.frame) }, uniquingKeysWith: { first, _ in first })
-        for (id, rect) in candidates {
+        for (id, rect) in grab.candidates {
             guard let frame = frames[id] else { continue }
             let moved = abs(frame.x - rect.x) > 1 || abs(frame.y - rect.y) > 1
             let resized = abs(frame.width - rect.width) > 1 || abs(frame.height - rect.height) > 1
@@ -81,7 +90,7 @@ final class MouseMonitor {
             // Show where the window will land 30 times a second, after 200 ms like Pop Shell.
             let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, let dragged = self.dragged else { return }
+                    guard let self, let dragged = self.dragged, self.manager?.isSwitchingSpaces == false else { return }
                     self.manager?.dragPreview(dragged)
                 }
             }
@@ -92,28 +101,48 @@ final class MouseMonitor {
     }
 
     private func mouseUp(flags: CGEventFlags) {
-        previewTimer?.invalidate()
-        previewTimer = nil
-        manager?.overlay.hide()
+        stopPreview()
         // The active hint hides while the mouse moves the focused window.
         manager?.scheduleHint()
+        guard let manager else { return }
 
-        let grabbed = receivedDrag ? candidates : [:]
-        let generation = grabGeneration
-        let since = downTime
-        let stack = manager?.holdsSuper(flags) ?? false
-        candidates = [:]
-        dragged = nil
-        receivedDrag = false
-        guard manager?.isSwitchingSpaces != true, !grabbed.isEmpty else { return }
-
+        let generation = manager.spaceSwitches.generation
+        let grabbed = grab.mouseUp(generation: generation)
+        let drop = Drop(since: downTime, cursor: Displays.cursor, stack: manager.holdsSuper(flags), generation: generation)
         for (id, rect) in grabbed {
             settle(id, previous: nil, attempts: 10) { [weak self] in
-                guard let self, grabGeneration == generation,
-                      let manager, !manager.isSwitchingSpaces,
-                      !manager.wasMovedByPopMac(id, since: since) else { return }
-                manager.onGrabEnd(id, original: rect, stack: stack)
+                self?.finish(id, original: rect, drop)
             }
+        }
+    }
+
+    /// What a mouse-up knew about a drop.
+    private struct Drop {
+        let since: Date
+        /// The cursor at mouse-up: the drop may be handled after the mouse moved on.
+        let cursor: Point
+        let stack: Bool
+        /// The Space generation at mouse-up.
+        let generation: Int
+    }
+
+    /// Hands a drop to the manager once the Space switch around it settled.
+    ///
+    /// A drop made before a later Space switch is stale: its window and its target
+    /// may be on a Space out of view.
+    private func finish(_ id: WindowID, original: Rect, _ drop: Drop) {
+        guard let manager else { return }
+        switch manager.spaceSwitches.decide(drop.generation, at: ProcessInfo.processInfo.systemUptime) {
+        case .drop:
+            grab.dropEnded(id)
+        case let .wait(delay):
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.01) { [weak self] in
+                MainActor.assumeIsolated { self?.finish(id, original: original, drop) }
+            }
+        case .run:
+            grab.dropEnded(id)
+            guard !manager.wasMovedByPopMac(id, since: drop.since) else { return }
+            manager.onGrabEnd(id, original: original, cursor: drop.cursor, stack: drop.stack)
         }
     }
 
@@ -124,8 +153,10 @@ final class MouseMonitor {
     private func settle(_ id: WindowID, previous: Rect?, attempts: Int, done: @escaping () -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let frame = Displays.onScreenFrame(of: id) ?? self.manager?.windows[id]?.frame else { return }
-                if frame == previous || attempts <= 0 {
+                guard let self else { return }
+                // A window that is gone settles at once. The drop's handler skips it.
+                let frame = Displays.onScreenFrame(of: id) ?? self.manager?.windows[id]?.frame
+                if frame == nil || frame == previous || attempts <= 0 {
                     done()
                 } else {
                     self.settle(id, previous: frame, attempts: attempts - 1, done: done)
