@@ -14,6 +14,8 @@ final class StackTabBar: NSPanel, GlidingWindow {
     /// The copy of a tab dragged by its grip, which follows the mouse,
     /// with how far right of the tab's center the mouse grabbed it.
     private var grabbed: (ghost: TabGhost, offset: CGFloat)?
+    /// The drag of the whole stack by this bar.
+    private var stackDrag = BarDrag()
     var targetFrame: NSRect?
     var fadeGeneration = 0
     var isFadingOut = false
@@ -29,7 +31,8 @@ final class StackTabBar: NSPanel, GlidingWindow {
     private var isRenaming = false
 
     enum DragPhase {
-        case moved
+        /// The mouse moved this far from where it went down, in screen points with y up.
+        case moved(CGVector)
         /// The drag ended, with the modifiers held at mouse-up.
         case ended(CGEventFlags)
     }
@@ -127,13 +130,15 @@ final class StackTabBar: NSPanel, GlidingWindow {
             for tab in tabs {
                 let button = TabButton(tab: tab, isActive: tab.id == active)
                 button.onClick = { [weak self] in self?.onSelect?(tab.id) }
+                // A new gesture forgets a drag whose mouse-up never came.
+                button.onPress = { [weak self] in self?.stackDrag.pressed() }
                 button.onDragMoved = { [weak self, weak button] point in
                     guard let self, let button else { return }
-                    if button.isDraggedByGrip { dragMoved(button, to: point) } else { onDrag?(.moved) }
+                    if button.isDraggedByGrip { dragMoved(button, to: point) } else { stackDragMoved(button) }
                 }
                 button.onDragEnded = { [weak self, weak button] flags in
                     guard let self, let button else { return }
-                    if button.isDraggedByGrip { dragEnded(button, id: tab.id) } else { onDrag?(.ended(flags)) }
+                    if button.isDraggedByGrip { dragEnded(button, id: tab.id) } else { stackDragEnded(flags) }
                 }
                 button.onHover = { [weak self] in self?.updateDividers() }
                 button.onMenu = { [weak self, weak button] event in
@@ -162,9 +167,9 @@ final class StackTabBar: NSPanel, GlidingWindow {
             track.layer?.cornerRadius = radius
         }
         // A bar left on another Space, as when its stack moved there or to another display,
-        // comes to its window's Space.
-        if isVisible, !isOnSpaceInView || isOnOtherSpace(than: window) { orderOut(nil) }
-        appear(at: Displays.toCocoa(frame))
+        // comes to its window's Space. A bar under the dragging mouse stays where it is.
+        if isVisible, !stackDrag.isDragging, !isOnSpaceInView || isOnOtherSpace(than: window) { orderOut(nil) }
+        if !stackDrag.isDragging { appear(at: Displays.toCocoa(frame)) }
         order(.above, relativeTo: Int(window))
     }
 
@@ -179,6 +184,34 @@ final class StackTabBar: NSPanel, GlidingWindow {
             let next = buttons[index + 1]
             button.showsDivider = ![button, next].contains { $0.isActive || $0.isHovered || $0.isPlaceholder }
         }
+    }
+
+    // MARK: - Moving the stack
+
+    /// Keeps the bar under the mouse while it drags the whole stack, and reports how far the mouse moved.
+    private func stackDragMoved(_ button: BarItem) {
+        guard let down = button.downPoint,
+              let origin = stackDrag.moved(from: Point(Double(frame.origin.x), Double(frame.origin.y)))
+        else { return }
+        let start = NSPoint(x: origin.x, y: origin.y)
+        // The bar moves with the mouse, so the offset comes from screen points.
+        let mouse = NSEvent.mouseLocation
+        let offset = CGVector(dx: mouse.x - (start.x + down.x), dy: mouse.y - (start.y + down.y))
+        setFrameOrigin(NSPoint(x: start.x + offset.dx, y: start.y + offset.dy))
+        // The bar glides from here to its place after the drop.
+        targetFrame = frame
+        onDrag?(.moved(offset))
+    }
+
+    private func stackDragEnded(_ flags: CGEventFlags) {
+        if stackDrag.ended() { onDrag?(.ended(flags)) }
+    }
+
+    /// Stops the drag of the stack, which goes back to its tiles. The bar glides back with the next update.
+    ///
+    /// While the button is still down, the bar ignores the rest of the gesture.
+    func cancelStackDrag(buttonDown: Bool) {
+        stackDrag.cancel(buttonDown: buttonDown)
     }
 
     // MARK: - Names and colors
@@ -309,6 +342,8 @@ final class StackTabBar: NSPanel, GlidingWindow {
 /// An item of the tab bar, which reports clicks, drags, and the mouse over it.
 private class BarItem: NSView {
     var onClick: (() -> Void)?
+    /// Called when the mouse goes down on the item, which begins a new gesture.
+    var onPress: (() -> Void)?
     /// Called while the item is dragged, with the mouse in window coordinates.
     var onDragMoved: ((NSPoint) -> Void)?
     /// Called when the drag ended, with the modifiers held at mouse-up.
@@ -372,6 +407,7 @@ private class BarItem: NSView {
     override func mouseDown(with event: NSEvent) {
         downPoint = event.locationInWindow
         isDragging = false
+        onPress?()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -862,6 +898,11 @@ final class StackTabsController {
         for bar in bars.values where bar.window == window && bar.isVisible {
             bar.order(.above, relativeTo: Int(window))
         }
+    }
+
+    /// Stops the drag of a stack by its bar.
+    func cancelDrag(of stack: Int, buttonDown: Bool) {
+        bars[stack]?.cancelStackDrag(buttonDown: buttonDown)
     }
 
     func removeAll() {
