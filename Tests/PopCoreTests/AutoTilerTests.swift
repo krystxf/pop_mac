@@ -471,7 +471,7 @@ struct AutoTilerTests {
     }
 
     @Test func savedLayoutKeepsTabLabels() throws {
-        let saved = SavedLayout(trees: [], tabs: [TabLabel(window: 3, name: "Docs", color: .mint), TabLabel(window: 4, color: .rose)])
+        let saved = SavedLayout(trees: [], tabs: [TabLabel(window: 3, name: "Docs", color: .green), TabLabel(window: 4, color: .red)])
         let decoded = try JSONDecoder().decode(SavedLayout.self, from: JSONEncoder().encode(saved))
         #expect(decoded == saved)
 
@@ -480,8 +480,12 @@ struct AutoTilerTests {
         #expect(old.tabs == nil)
 
         // A color this version does not know drops out, and the name stays.
-        let newer = try JSONDecoder().decode(SavedLayout.self, from: Data(#"{"trees":[],"tabs":[{"window":3,"name":"Docs","color":"teal"}]}"#.utf8))
+        let newer = try JSONDecoder().decode(SavedLayout.self, from: Data(#"{"trees":[],"tabs":[{"window":3,"name":"Docs","color":"magenta"}]}"#.utf8))
         #expect(newer.tabs == [TabLabel(window: 3, name: "Docs")])
+
+        // A pastel color of an earlier version becomes the color that replaced it.
+        let pastel = try JSONDecoder().decode(SavedLayout.self, from: Data(#"{"trees":[],"tabs":[{"window":3,"color":"lavender"}]}"#.utf8))
+        #expect(pastel.tabs == [TabLabel(window: 3, color: .purple)])
     }
 
     @Test func savedLayoutSkipsWindowsThatAreGone() {

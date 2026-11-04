@@ -30,7 +30,7 @@ final class WindowManager {
     private(set) var displays: [Display] = Displays.all()
 
     let overlay = OverlayWindow()
-    let hint = HintWindow()
+    let hint = Outlines()
     /// The dark layers over the wallpaper, by display.
     private var wallpaperDims: [MonitorID: WallpaperDimWindow] = [:]
     let animator = WindowAnimator()
@@ -69,7 +69,10 @@ final class WindowManager {
     private var snapBackPending = Set<WindowID>()
     private var snapBackScheduled = false
     private var verifyScheduled = false
-    private var spaceScanScheduled = false
+    /// Window-server frames can be translated across displays during a Space animation.
+    private(set) var spaceSwitches = SpaceSwitchClock()
+    private var spaceScan: DispatchWorkItem?
+    var isSwitchingSpaces: Bool { spaceSwitches.isSwitching(at: ProcessInfo.processInfo.systemUptime) }
     private var departureTimer: Timer?
     /// How many checks in a row found each tiled window off screen.
     private var offscreenStrikes: [WindowID: Int] = [:]
@@ -230,9 +233,7 @@ final class WindowManager {
         }
     }
 
-    /// The system accent color, for the selected stack tab and, before macOS 26, the highlights.
-    ///
-    /// The color is resolved, so a new accent color counts as a change.
+    /// The system accent color, for the outline and the drop preview.
     private var accentColor: NSColor {
         NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .controlAccentColor
     }
@@ -358,7 +359,7 @@ final class WindowManager {
             }
             if let id = moved,
                // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
-               autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
+               autoTiler?.isAttached(id) == true, !isSwitchingSpaces, NSEvent.pressedMouseButtons & 1 == 0,
                Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5
             {
                 scheduleSnapBack(id)
@@ -449,7 +450,7 @@ final class WindowManager {
                 self.snapBackScheduled = false
                 let ids = self.snapBackPending
                 self.snapBackPending.removeAll()
-                guard let autoTiler = self.autoTiler, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+                guard !self.isSwitchingSpaces, let autoTiler = self.autoTiler, NSEvent.pressedMouseButtons & 1 == 0 else { return }
 
                 var tiled = Set<ObjectIdentifier>()
                 for id in ids {
@@ -583,20 +584,28 @@ final class WindowManager {
     // MARK: - Spaces and displays
 
     private func onSpaceChanged() {
+        spaceSwitches.switched(at: ProcessInfo.processInfo.systemUptime)
         exitTileMode()
         // A dragged stack's windows stay on their Space. They go back to their tiles there.
         cancelStackDrag(buttonDown: NSEvent.pressedMouseButtons & 1 != 0)
-        hint.hide()
+        // Each Space keeps its own outline, which slides in and out with the Space.
+        hint.keep(spaces: Set(Spaces.allSpaces().values.joined()))
         scheduleFocusCheck()
-        guard !spaceScanScheduled else { return }
-        spaceScanScheduled = true
-        // The window list lags slightly behind the Space switch.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            MainActor.assumeIsolated {
-                self?.spaceScanScheduled = false
-                self?.scanVisibleWindows()
-            }
+        mouse?.spaceChanged()
+        snapBackPending.removeAll()
+        offscreenStrikes.removeAll()
+        untiledStrikes.removeAll()
+        scheduleSpaceScan()
+    }
+
+    /// Every switch restarts the quiet period, including switches in a rapid sequence.
+    private func scheduleSpaceScan() {
+        spaceScan?.cancel()
+        let scan = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.scanVisibleWindows() }
         }
+        spaceScan = scan
+        DispatchQueue.main.asyncAfter(deadline: .now() + SpaceSwitchClock.quietPeriod, execute: scan)
     }
 
     /// Keeps the trees in step with windows that moved between Spaces.
@@ -610,7 +619,7 @@ final class WindowManager {
     /// Both must hold on two checks in a row, because windows also leave and
     /// enter the screen for a moment while a Space switch animates.
     private func checkDepartedWindows() {
-        guard let autoTiler, NSEvent.pressedMouseButtons & 1 == 0, !SpaceMover.isMoving else { return }
+        guard !isSwitchingSpaces, let autoTiler, NSEvent.pressedMouseButtons & 1 == 0, !SpaceMover.isMoving else { return }
 
         let visible = Set(Displays.onScreenWindowIDs())
         let visibleKeys = Set(displays.map { currentKey(of: $0) })
@@ -655,6 +664,11 @@ final class WindowManager {
 
     /// Finds new windows on the visible Spaces, and fixes windows that changed Space.
     func scanVisibleWindows() {
+        // A window that the mouse drags across Spaces is placed by its drop, not by the scan.
+        guard !isSwitchingSpaces, mouse?.isBusy(generation: spaceSwitches.generation) != true else {
+            scheduleSpaceScan()
+            return
+        }
         displays = Displays.all()
         for observer in observers.values {
             for element in observer.windows() {
@@ -717,8 +731,9 @@ final class WindowManager {
     }
 
     /// The workspace key from the window's real frame and Space.
-    func actualKey(of id: WindowID) -> WorkspaceKey? {
-        guard let window = windows[id], let frame = Displays.onScreenFrame(of: id) ?? window.frame,
+    func actualKey(of id: WindowID, frame: Rect? = nil) -> WorkspaceKey? {
+        // AX reports the app's real frame; the window-server frame includes Space animation offsets.
+        guard let window = windows[id], let frame = frame ?? window.frame,
               let display = Displays.display(for: frame, in: displays)
         else { return nil }
         // After a window crosses displays, macOS can still report its old display's Space.
@@ -959,27 +974,37 @@ final class WindowManager {
     }
 
     private func updateHint() {
-        guard settings.activeHint, tileMode == nil,
-              let id = prevFocused[1], let window = windows[id],
+        guard settings.activeHint, tileMode == nil else {
+            hint.hide()
+            return
+        }
+        if showHint() { return }
+        if isSwitchingSpaces {
+            // While a Space switch settles, the frontmost app and the frames can still be the
+            // old Space's. Hiding the outline then would make it flash. Look again a moment later.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                MainActor.assumeIsolated { self?.scheduleHint() }
+            }
+        } else {
+            hint.hide()
+        }
+    }
+
+    /// Shows the outline around the focused window. Returns false if there is none to show now.
+    private func showHint() -> Bool {
+        guard let id = prevFocused[1], let window = windows[id],
               NSWorkspace.shared.frontmostApplication.flatMap(Processes.pid(of:)) == window.pid,
               // The window server knows the frame without asking the app, which may be busy.
               // A window that glides to a new frame has its outline glide there too.
               var frame = Displays.onScreenFrame(of: id).map({ animator.target(of: id) ?? $0 }), !window.isFullscreen
-        else {
-            hint.hide()
-            return
-        }
+        else { return false }
         // A hidden outline waits for its window to arrive, instead of appearing around an empty tile.
-        if animator.target(of: id) != nil, !hint.surrounds(id) {
-            hint.hide()
-            return
-        }
+        if animator.target(of: id) != nil, !hint.surrounds(id) { return false }
         // In Mission Control and App Exposé, and while they close, the window server
         // reports the frame of the window's thumbnail. Wait for the real frame.
         if animator.target(of: id) == nil, let real = window.frame, !real.approximatelyEquals(frame, tolerance: 2) {
-            hint.hide()
             retryHint()
-            return
+            return false
         }
         hintWaitStart = nil
         if let autoTiler, autoTiler.findStack(id) != nil {
@@ -987,8 +1012,12 @@ final class WindowManager {
             frame.y -= autoTiler.forest.tabHeight
             frame.height += autoTiler.forest.tabHeight
         }
-        hint.show(around: frame, of: id)
+        // Checked against the window's display: after a window crosses displays, macOS
+        // can still report the old display's Space.
+        let space = actualKey(of: id, frame: frame)?.space ?? Spaces.space(of: id) ?? Spaces.activeSpace
+        hint.show(around: frame, of: id, on: space)
         tabs.reorder(above: id)
+        return true
     }
 
     /// Darkens the wallpaper of each display that shows exactly one window.
@@ -1046,10 +1075,15 @@ final class WindowManager {
 
         let visible = Set(displays.map { currentKey(of: $0) })
         let height = autoTiler.forest.tabHeight
+        // Stacks on Spaces out of view keep their bars. macOS shows a bar again with its
+        // Space, so the tabs slide in with the windows instead of fading in after them.
+        var hidden = Set<Int>()
         let entries = autoTiler.forest.allStacks().compactMap { stack -> StackTabsController.Entry? in
-            guard let rect = stack.rect, let fork = autoTiler.findStack(stack.active)?.fork,
-                  visible.contains(autoTiler.forest.toplevel(of: fork).workspace)
-            else { return nil }
+            guard let rect = stack.rect, let fork = autoTiler.findStack(stack.active)?.fork else { return nil }
+            guard visible.contains(autoTiler.forest.toplevel(of: fork).workspace) else {
+                hidden.insert(stack.id)
+                return nil
+            }
             let tabs = stack.entities.compactMap { id -> StackTabBar.Tab? in
                 guard let window = windows[id] else { return nil }
                 let label = tabLabels[id]
@@ -1080,7 +1114,7 @@ final class WindowManager {
         } color: { [weak self] id, color in
             MainActor.assumeIsolated { self?.changeLabel(of: id) { $0.color = color } }
         }
-        tabs.sync(entries, color: accentColor, actions: actions)
+        tabs.sync(entries, keeping: hidden, actions: actions)
         scheduleHint()
     }
 
@@ -1245,8 +1279,10 @@ final class WindowManager {
 
     /// Handles the end of a mouse drag or resize of a window.
     ///
-    /// - Parameter stack: True if the Super modifiers were held at the drop, so a drop on a window's center stacks.
-    func onGrabEnd(_ id: WindowID, original: Rect, stack: Bool = false) {
+    /// - Parameters:
+    ///   - cursor: The cursor at the mouse-up, which places a moved window.
+    ///   - stack: True if the Super modifiers were held at the drop, so a drop on a window's center stacks.
+    func onGrabEnd(_ id: WindowID, original: Rect, cursor: Point, stack: Bool = false) {
         overlay.hide()
         defer { scheduleHint() }
         guard let window = windows[id], let current = window.frame else { return }
@@ -1271,7 +1307,6 @@ final class WindowManager {
         if isResize {
             autoTiler.resizeByMouse(id, from: original, to: current)
         } else {
-            let cursor = Displays.cursor
             guard let display = Displays.display(at: cursor, in: displays) else { return }
             let key = currentKey(of: display)
             let previous = autoTiler.attached[id].map { autoTiler.forest.toplevel(of: $0).workspace }
@@ -1455,6 +1490,10 @@ extension WindowManager: @preconcurrency TilingEnvironment {
 
     private func verify() {
         verifyScheduled = false
+        guard !isSwitchingSpaces else {
+            scheduleVerify()
+            return
+        }
         let pending = pendingVerify
         pendingVerify.removeAll()
         var retile = Set<WindowID>()

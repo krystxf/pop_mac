@@ -9,6 +9,8 @@ import PopCore
 /// The bar glides along when its stack moves.
 final class StackTabBar: NSPanel, GlidingWindow {
     private let tabsView = NSStackView()
+    /// The rounded track behind the tabs: Liquid Glass on macOS 26 and later.
+    private var track = NSView()
     /// The copy of a tab dragged by its grip, which follows the mouse,
     /// with how far right of the tab's center the mouse grabbed it.
     private var grabbed: (ghost: TabGhost, offset: CGFloat)?
@@ -43,13 +45,19 @@ final class StackTabBar: NSPanel, GlidingWindow {
         var color: TabColor?
         /// True if the user gave the tab a name.
         var isRenamed = false
+
+        /// The icon is left out: it belongs to the window's app, so it stays with the window.
+        /// `NSRunningApplication` may return a new image each time, which would rebuild the bar.
+        static func == (lhs: Tab, rhs: Tab) -> Bool {
+            lhs.id == rhs.id && lhs.title == rhs.title && lhs.color == rhs.color && lhs.isRenamed == rhs.isRenamed
+        }
     }
 
     /// The stack's selected window, which the bar stays above.
     private(set) var window: WindowID?
 
     /// What the bar shows now, so an unchanged bar is not rebuilt.
-    private var shown: (tabs: [Tab], active: WindowID, color: NSColor)?
+    private var shown: (tabs: [Tab], active: WindowID)?
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -64,18 +72,31 @@ final class StackTabBar: NSPanel, GlidingWindow {
 
         tabsView.orientation = .horizontal
         tabsView.distribution = .fillEqually
-        tabsView.spacing = 4
-        tabsView.edgeInsets = NSEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
+        tabsView.spacing = 2
+        tabsView.edgeInsets = NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
         tabsView.wantsLayer = true
+        // One track holds the tabs, like the tab bar of Safari.
         if #available(macOS 26, *) {
-            // The tabs' glass blends where they meet, like one bar.
-            let container = NSGlassEffectContainerView()
-            container.spacing = 6
-            container.contentView = tabsView
-            contentView = container
+            let glass = NSGlassEffectView()
+            glass.contentView = tabsView
+            track = glass
         } else {
-            contentView = tabsView
+            track.wantsLayer = true
+            track.layer?.backgroundColor = NSColor(white: 0.14, alpha: 0.92).cgColor
+            tabsView.translatesAutoresizingMaskIntoConstraints = false
+            track.addSubview(tabsView)
+            NSLayoutConstraint.activate([
+                tabsView.leadingAnchor.constraint(equalTo: track.leadingAnchor),
+                tabsView.trailingAnchor.constraint(equalTo: track.trailingAnchor),
+                tabsView.topAnchor.constraint(equalTo: track.topAnchor),
+                tabsView.bottomAnchor.constraint(equalTo: track.bottomAnchor),
+            ])
         }
+        contentView = track
+    }
+
+    private static let trackShade = NSColor(name: nil) {
+        $0.isDark ? NSColor(white: 0, alpha: 0.4) : NSColor(white: 1, alpha: 0.4)
     }
 
     /// The bar is a non-activating panel, so it takes key presses without activating Pop Mac.
@@ -88,17 +109,24 @@ final class StackTabBar: NSPanel, GlidingWindow {
         if isRenaming { makeFirstResponder(nil) }
     }
 
-    func update(tabs: [Tab], active: WindowID, color: NSColor, frame: Rect, above window: WindowID) {
+    func update(tabs: [Tab], active: WindowID, frame: Rect, above window: WindowID) {
         // A rebuild would remove the name field. The next update after the rename rebuilds the bar.
-        if !isRenaming, shown?.tabs != tabs || shown?.active != active || shown?.color != color {
-            shown = (tabs, active, color)
+        if !isRenaming, shown?.tabs == tabs, shown?.active != active {
+            // The same tabs with another one selected: the tabs change their look smoothly.
+            shown = (tabs, active)
+            for case let button as TabButton in tabsView.arrangedSubviews {
+                button.isActive = button.id == active
+            }
+            updateDividers()
+        } else if !isRenaming, shown?.tabs != tabs || shown?.active != active {
+            shown = (tabs, active)
             dropGhost()
             for view in tabsView.arrangedSubviews {
                 tabsView.removeArrangedSubview(view)
                 view.removeFromSuperview()
             }
             for tab in tabs {
-                let button = TabButton(tab: tab, isActive: tab.id == active, color: color)
+                let button = TabButton(tab: tab, isActive: tab.id == active)
                 button.onClick = { [weak self] in self?.onSelect?(tab.id) }
                 // A new gesture forgets a drag whose mouse-up never came.
                 button.onPress = { [weak self] in self?.stackDrag.pressed() }
@@ -110,6 +138,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
                     guard let self, let button else { return }
                     if button.isDraggedByGrip { dragEnded(button, id: tab.id) } else { stackDragEnded(flags) }
                 }
+                button.onHover = { [weak self] in self?.updateDividers() }
                 button.onMenu = { [weak self, weak button] event in
                     guard let self, let button else { return }
                     showMenu(for: tab, of: button, event: event)
@@ -119,12 +148,39 @@ final class StackTabBar: NSPanel, GlidingWindow {
                 let insets = tabsView.edgeInsets.top + tabsView.edgeInsets.bottom
                 button.heightAnchor.constraint(equalTo: tabsView.heightAnchor, constant: -insets).isActive = true
             }
+            updateDividers()
         }
 
         self.window = window
-        // While the mouse drags the stack, the bar stays under the mouse.
+        // The track is a pill, with fully round ends.
+        let radius = CGFloat(frame.height) / 2
+        if #available(macOS 26, *), let glass = track as? NSGlassEffectView {
+            glass.cornerRadius = radius
+            // A shade over the glass, so the wallpaper shows less, as in Safari.
+            tabsView.layer?.cornerRadius = radius
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                tabsView.layer?.backgroundColor = Self.trackShade.cgColor
+            }
+        } else {
+            track.layer?.cornerRadius = radius
+        }
+        // A bar left on another Space, as when its stack moved there, comes to this one.
+        if isVisible, !isOnSpaceInView { orderOut(nil) }
         if !stackDrag.isDragging { appear(at: Displays.toCocoa(frame)) }
         order(.above, relativeTo: Int(window))
+    }
+
+    /// Shows a line between two tabs, unless one of them is selected or under the mouse, as in Safari.
+    private func updateDividers() {
+        let buttons = tabsView.arrangedSubviews.compactMap { $0 as? TabButton }
+        for (index, button) in buttons.enumerated() {
+            guard index + 1 < buttons.count else {
+                button.showsDivider = false
+                continue
+            }
+            let next = buttons[index + 1]
+            button.showsDivider = ![button, next].contains { $0.isActive || $0.isHovered || $0.isPlaceholder }
+        }
     }
 
     // MARK: - Moving the stack
@@ -220,6 +276,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
             addChildWindow(ghost, ordered: .above)
             grabbed = (ghost, down.x - button.frame.midX)
             button.isPlaceholder = true
+            updateDividers()
         }
         guard let grabbed else { return }
 
@@ -236,6 +293,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
             // The tab stays in the view tree, so it keeps getting the drag's events.
             tabsView.removeArrangedSubview(button)
             tabsView.insertArrangedSubview(button, at: index)
+            updateDividers()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
                 context.allowsImplicitAnimation = true
@@ -258,6 +316,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
         // The model changes after the animation, because the change rebuilds the tabs.
         ghost.settle(onto: screenFrame(of: button.frame)) { [weak self, weak button] in
             button?.isPlaceholder = false
+            self?.updateDividers()
             self?.removeChildWindow(ghost)
             ghost.orderOut(nil)
             self?.onReorder?(id, index)
@@ -277,7 +336,7 @@ final class StackTabBar: NSPanel, GlidingWindow {
     }
 }
 
-/// A rounded item of the tab bar, which reports clicks and drags.
+/// An item of the tab bar, which reports clicks, drags, and the mouse over it.
 private class BarItem: NSView {
     var onClick: (() -> Void)?
     /// Called when the mouse goes down on the item, which begins a new gesture.
@@ -288,75 +347,47 @@ private class BarItem: NSView {
     var onDragEnded: ((CGEventFlags) -> Void)?
     /// Called on a secondary click, such as a two-finger click.
     var onMenu: ((NSEvent) -> Void)?
-    /// The view that holds the item's content.
-    private(set) var body: NSView!
     /// Where the mouse went down, in window coordinates.
     private(set) var downPoint: NSPoint?
     /// While true, clicks reach the item's content, such as a text field.
     var passesClicksToContent = false
     private var isDragging = false
-    private var glass: NSView?
+    /// True while the mouse is over the item.
+    private(set) var isHovered = false
 
-    /// Liquid Glass on macOS 26 and later, tinted with `tint`. A solid rounded rectangle before.
-    ///
-    /// A `gradient` fills the item from left to right, over the glass.
-    init(tint: NSColor?, gradient colors: [NSColor]? = nil) {
+    init() {
         super.init(frame: .zero)
-        defer { addGradient(colors) }
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        if #available(macOS 26, *) {
-            let glass = NSGlassEffectView()
-            self.glass = glass
-            glass.tintColor = tint?.withAlphaComponent(0.8)
-            glass.translatesAutoresizingMaskIntoConstraints = false
-            body = NSView()
-            glass.contentView = body
-            addSubview(glass)
-            NSLayoutConstraint.activate([
-                glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-                glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-                glass.topAnchor.constraint(equalTo: topAnchor),
-                glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            ])
-        } else {
-            wantsLayer = true
-            layer?.cornerRadius = 6
-            layer?.backgroundColor = (tint ?? NSColor(srgbRed: 0.61, green: 0.56, blue: 0.54, alpha: 0.95)).cgColor
-            body = self
-        }
     }
 
     required init?(coder _: NSCoder) { nil }
 
-    private func addGradient(_ colors: [NSColor]?) {
-        guard let colors else { return }
-        let view = GradientView(colors: colors, pill: glass != nil)
-        body.addSubview(view, positioned: .below, relativeTo: nil)
-        NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: body.leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: body.trailingAnchor),
-            view.topAnchor.constraint(equalTo: body.topAnchor),
-            view.bottomAnchor.constraint(equalTo: body.bottomAnchor),
-        ])
+    /// Called when the mouse enters or leaves the item.
+    func hoverChanged() {}
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func layout() {
-        super.layout()
-        // A pill: fully round ends at any height.
-        if #available(macOS 26, *), let glass = glass as? NSGlassEffectView {
-            glass.cornerRadius = bounds.height / 2
-        }
+    override func mouseEntered(with _: NSEvent) {
+        isHovered = true
+        hoverChanged()
+    }
+
+    override func mouseExited(with _: NSEvent) {
+        isHovered = false
+        hoverChanged()
     }
 
     /// True while a copy of the item floats elsewhere, so only an empty slot shows.
     var isPlaceholder = false {
-        didSet {
-            if let glass { glass.isHidden = isPlaceholder } else { alphaValue = isPlaceholder ? 0 : 1 }
-        }
+        didSet { alphaValue = isPlaceholder ? 0 : 1 }
     }
 
-    /// The item takes every click inside it, so its content and glass never swallow one.
+    /// The item takes every click inside it, so its content never swallows one.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard frame.contains(point) else { return nil }
         return passesClicksToContent ? super.hitTest(point) ?? self : self
@@ -396,20 +427,59 @@ private class BarItem: NSView {
     }
 }
 
-/// A left-to-right gradient with rounded ends, which sizes itself with its view.
-private final class GradientView: NSView {
-    private let pill: Bool
+/// The pill behind a tab: raised for the selected tab, faint under the mouse,
+/// and a left-to-right gradient for a colored tab.
+///
+/// A colored tab shows its color faintly at the left end. Selected, a full layer of the
+/// color covers the tab. A soft-edged mask slides it in from the left, and out again.
+private final class TabFill: NSView {
+    enum Style: Equatable {
+        case none
+        /// A faint fill, as under the mouse.
+        case hover
+        /// The selected tab, lifted off the bar with a light edge and a shadow.
+        case raised
+        /// A colored tab, raised if selected.
+        case colored(TabColor, raised: Bool)
+    }
 
-    /// With `pill`, the ends are fully round, like Liquid Glass. Otherwise the corners are slightly round.
-    init(colors: [NSColor], pill: Bool) {
-        self.pill = pill
+    /// A change blends the fill smoothly into the new style.
+    var style = Style.none {
+        didSet { if style != oldValue { apply(animated: window != nil && Motion.isOn) } }
+    }
+
+    /// The full color of a selected colored tab, over the faint color.
+    private let overlay = CAGradientLayer()
+    /// The overlay's mask: opaque, with a soft right edge. It slides to uncover the overlay.
+    private let wipe = CAGradientLayer()
+    /// True while the wipe uncovers the overlay.
+    private var isRevealed = false
+
+    private static let raisedFill = NSColor(name: nil) { $0.isDark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 1, alpha: 0.9) }
+    private static let hoverFill = NSColor(name: nil) { $0.isDark ? NSColor(white: 1, alpha: 0.07) : NSColor(white: 0, alpha: 0.05) }
+    private static let edge = NSColor(name: nil) { $0.isDark ? NSColor(white: 1, alpha: 0.12) : NSColor(white: 0, alpha: 0.08) }
+    /// The wipe is this much wider than the tab. The extra width is its soft edge.
+    private static let wipeScale: CGFloat = 1.3
+
+    init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         guard let layer = layer as? CAGradientLayer else { return }
-        layer.colors = colors.map(\.cgColor)
         layer.startPoint = CGPoint(x: 0, y: 0.5)
         layer.endPoint = CGPoint(x: 1, y: 0.5)
+        layer.shadowOffset = CGSize(width: 0, height: -1)
+        layer.shadowRadius = 2
+        layer.shadowColor = NSColor.black.cgColor
+
+        overlay.startPoint = CGPoint(x: 0, y: 0.5)
+        overlay.endPoint = CGPoint(x: 1, y: 0.5)
+        wipe.startPoint = CGPoint(x: 0, y: 0.5)
+        wipe.endPoint = CGPoint(x: 1, y: 0.5)
+        wipe.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        wipe.locations = [0, NSNumber(value: Double(1 / Self.wipeScale)), 1]
+        overlay.mask = wipe
+        layer.addSublayer(overlay)
     }
 
     required init?(coder _: NSCoder) { nil }
@@ -421,93 +491,245 @@ private final class GradientView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = pill ? bounds.height / 2 : 6
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.cornerRadius = bounds.height / 2
+        overlay.frame = bounds
+        overlay.cornerRadius = bounds.height / 2
+        wipe.frame = wipeFrame(revealed: isRevealed)
+        CATransaction.commit()
+    }
+
+    /// Covering the tab, with the soft edge past its right end. Hidden, fully left of the tab.
+    private func wipeFrame(revealed: Bool) -> CGRect {
+        let width = bounds.width * Self.wipeScale
+        return CGRect(x: revealed ? 0 : -width, y: 0, width: width, height: bounds.height)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        apply(animated: false)
+    }
+
+    private func apply(animated: Bool) {
+        guard let layer = layer as? CAGradientLayer else { return }
+        // Every style has three stops, so one style blends into the next.
+        let (colors, locations, raised): ([NSColor], [NSNumber], Bool) = switch style {
+        case .none: ([.clear, .clear, .clear], [0, 0.5, 1], false)
+        case .hover: ([Self.hoverFill, Self.hoverFill, Self.hoverFill], [0, 0.5, 1], false)
+        case .raised: ([Self.raisedFill, Self.raisedFill, Self.raisedFill], [0, 0.5, 1], true)
+        // The color at the left end only, fading out by a third of the tab, so it does not draw the eye.
+        case let .colored(color, raised): (color.fill(alpha: 0.35), [0, 0, 0.3], raised)
+        }
+        var values: [String: Any] = [
+            "locations": locations,
+            "borderWidth": raised ? 0.5 : 0,
+            "shadowOpacity": Float(raised ? 0.25 : 0),
+        ]
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            values["colors"] = colors.map(\.cgColor)
+            values["borderColor"] = Self.edge.cgColor
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if case let .colored(color, _) = style {
+            overlay.colors = [color.stops.0.withAlphaComponent(0.8).cgColor, color.stops.1.withAlphaComponent(0.8).cgColor]
+        }
+        let reveal = if case .colored(_, true) = style {
+            true
+        } else {
+            false
+        }
+        for (key, value) in values {
+            if animated { animate(layer, key, to: value) }
+            layer.setValue(value, forKeyPath: key)
+        }
+        if reveal != isRevealed {
+            isRevealed = reveal
+            let frame = wipeFrame(revealed: reveal)
+            if animated { animate(wipe, "position", to: CGPoint(x: frame.midX, y: frame.midY)) }
+            wipe.frame = frame
+        }
+        CATransaction.commit()
+    }
+
+    /// Animates `key` of `layer` from where it is now, so a quick change of mind stays smooth.
+    private func animate(_ layer: CALayer, _ key: String, to value: Any) {
+        let animation = CABasicAnimation(keyPath: key)
+        animation.fromValue = (layer.presentation() ?? layer).value(forKeyPath: key)
+        animation.toValue = value
+        animation.duration = Motion.duration * 1.4
+        animation.timingFunction = Motion.timing
+        layer.add(animation, forKey: key)
     }
 }
 
+/// A thin line between two tabs, in the system's separator color.
+private final class DividerView: NSView {
+    override func draw(_: NSRect) {
+        NSColor.separatorColor.setFill()
+        bounds.fill()
+    }
+
+    /// Clicks go to the tab.
+    override func hitTest(_: NSPoint) -> NSView? { nil }
+}
+
+private extension NSAppearance {
+    var isDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
+}
+
 private final class TabButton: BarItem, NSTextFieldDelegate {
-    /// The dots at the tab's right end, which drag the tab along the bar.
+    /// The dots at the tab's right end, which drag the tab along the bar. They show under the mouse.
     private let grip = NSImageView()
     /// True while a drag that began on the grip lasts.
     private(set) var isDraggedByGrip = false
     private let tab: StackTabBar.Tab
-    private let isActive: Bool
-    private let color: NSColor
+    var id: WindowID { tab.id }
+    /// True for the stack's selected tab. A change restyles the tab smoothly.
+    var isActive: Bool {
+        didSet {
+            guard isActive != oldValue else { return }
+            applyText(animated: true)
+            hoverChanged()
+        }
+    }
+    /// The line between this tab and the next.
+    private let divider = DividerView()
+    /// Called when the mouse enters or leaves the tab.
+    var onHover: (() -> Void)?
+    /// True for the copy that follows the mouse while the tab is dragged.
+    private let isLifted: Bool
+    private let fill = TabFill()
+    /// The icon and the name, centered in the tab.
+    private let content = NSStackView()
     private let label: NSTextField
-    private let icon: NSImageView
     /// The field that edits the tab's name, while a rename lasts.
     private var nameField: NSTextField?
     /// Called once when the rename ends, with the new name or nil if it was canceled,
     /// and true if the user pressed a key that hands the keyboard back.
     private var onRenameEnd: ((String?, Bool) -> Void)?
 
-    init(tab: StackTabBar.Tab, isActive: Bool, color: NSColor) {
+    init(tab: StackTabBar.Tab, isActive: Bool, lifted: Bool = false) {
         self.tab = tab
         self.isActive = isActive
-        self.color = color
+        isLifted = lifted
         label = NSTextField(labelWithString: tab.title.isEmpty ? "Untitled" : tab.title)
-        icon = NSImageView(image: tab.icon ?? NSImage())
+        super.init()
 
-        // A colored tab shows its color instead of the accent color, with some glass
-        // showing through. The selected tab shows the color stronger than the others.
-        let gradient = tab.color.map { $0.gradient(alpha: isActive ? 0.8 : 0.6) }
-        super.init(tint: isActive && tab.color == nil ? color : nil, gradient: gradient)
-
-        // Dark text reads best on the pastel colors.
-        let textColor: NSColor = if tab.color != nil {
-            NSColor.black.withAlphaComponent(isActive ? 0.85 : 0.7)
-        } else if isActive {
-            color.contrastingText
-        } else if #available(macOS 26, *) {
-            .labelColor
-        } else {
-            .white
-        }
-
-        label.font = .systemFont(ofSize: 11, weight: isActive ? .semibold : .regular)
-        label.textColor = textColor
         label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        icon.translatesAutoresizingMaskIntoConstraints = false
+        let icon = NSImageView(image: tab.icon ?? NSImage())
         icon.imageScaling = .scaleProportionallyUpOrDown
+        content.orientation = .horizontal
+        content.spacing = 5
+        content.addArrangedSubview(icon)
+        content.addArrangedSubview(label)
+        content.translatesAutoresizingMaskIntoConstraints = false
 
         grip.image = NSImage(systemSymbolName: "circle.grid.3x3.fill", accessibilityDescription: "Reorder tab")
         grip.symbolConfiguration = .init(pointSize: 8, weight: .regular)
-        grip.contentTintColor = textColor.withAlphaComponent(0.6)
         grip.translatesAutoresizingMaskIntoConstraints = false
         grip.toolTip = "Drag to reorder the tab"
 
-        body.addSubview(icon)
-        body.addSubview(label)
-        body.addSubview(grip)
+        addSubview(fill)
+        addSubview(content)
+        addSubview(grip)
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.isHidden = true
+        addSubview(divider)
+        // The name stays centered in the tab, unless it is too long to fit beside the grip.
+        let centered = content.centerXAnchor.constraint(equalTo: centerXAnchor)
+        centered.priority = .defaultLow
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 8),
-            icon.centerYAnchor.constraint(equalTo: body.centerYAnchor),
+            fill.leadingAnchor.constraint(equalTo: leadingAnchor),
+            fill.trailingAnchor.constraint(equalTo: trailingAnchor),
+            fill.topAnchor.constraint(equalTo: topAnchor),
+            fill.bottomAnchor.constraint(equalTo: bottomAnchor),
             icon.widthAnchor.constraint(equalToConstant: 14),
             icon.heightAnchor.constraint(equalToConstant: 14),
-            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 4),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: grip.leadingAnchor, constant: -4),
-            label.centerYAnchor.constraint(equalTo: body.centerYAnchor),
-            grip.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -8),
-            grip.centerYAnchor.constraint(equalTo: body.centerYAnchor),
+            centered,
+            content.centerYAnchor.constraint(equalTo: centerYAnchor),
+            content.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 10),
+            content.trailingAnchor.constraint(lessThanOrEqualTo: grip.leadingAnchor, constant: -4),
+            grip.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            grip.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // In the middle of the gap to the next tab.
+            divider.centerXAnchor.constraint(equalTo: trailingAnchor, constant: 1),
+            divider.centerYAnchor.constraint(equalTo: centerYAnchor),
+            divider.widthAnchor.constraint(equalToConstant: 1),
+            divider.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.5),
         ])
+        applyText(animated: false)
+        hoverChanged()
     }
 
-    /// A new tab that looks the same.
+    required init?(coder _: NSCoder) { nil }
+
+    /// A copy of the tab, lifted, to follow the mouse.
     func copy() -> TabButton {
-        TabButton(tab: tab, isActive: isActive, color: color)
+        TabButton(tab: tab, isActive: isActive, lifted: true)
+    }
+
+    /// Sets the name's color and weight, and the grip's color, for the tab's state.
+    ///
+    /// With `animated`, the old text fades into the new.
+    private func applyText(animated: Bool) {
+        // Black or white text reads best on the full color of a selected colored tab.
+        // The other tabs show their color faintly, so their text is the usual muted gray.
+        let textColor: NSColor = if isActive || isLifted {
+            tab.color.map { $0.text.withAlphaComponent(0.9) } ?? .labelColor
+        } else {
+            .secondaryLabelColor
+        }
+        if animated, Motion.isOn {
+            label.wantsLayer = true
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = Motion.duration
+            fade.timingFunction = Motion.timing
+            label.layer?.add(fade, forKey: "fade")
+        }
+        label.font = .systemFont(ofSize: 11, weight: isActive ? .medium : .regular)
+        label.textColor = textColor
+        grip.contentTintColor = textColor.withAlphaComponent(0.6)
+    }
+
+    override func hoverChanged() {
+        let raised = isActive || isLifted
+        fill.style = if let color = tab.color {
+            .colored(color, raised: raised)
+        } else if raised {
+            .raised
+        } else {
+            isHovered ? .hover : .none
+        }
+        let gripAlpha: CGFloat = isHovered || isLifted ? 1 : 0
+        if window != nil, Motion.isOn {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Motion.fadeDuration
+                grip.animator().alphaValue = gripAlpha
+            }
+        } else {
+            grip.alphaValue = gripAlpha
+        }
+        onHover?()
+    }
+
+    /// Shows the line between this tab and the next.
+    var showsDivider: Bool {
+        get { !divider.isHidden }
+        set { divider.isHidden = !newValue }
     }
 
     override func mouseDown(with event: NSEvent) {
         // The grip takes the tab's end, from a little left of its dots, so it is easy to hit.
         let point = convert(event.locationInWindow, from: nil)
-        isDraggedByGrip = point.x >= grip.convert(grip.bounds, to: self).minX - 4
+        isDraggedByGrip = point.x >= grip.frame.minX - 4
         super.mouseDown(with: event)
     }
-
-    required init?(coder _: NSCoder) { nil }
 
     // MARK: - Renaming
 
@@ -526,15 +748,16 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
         field.cell?.isScrollable = true
         field.cell?.wraps = false
         field.placeholderString = "Window title"
+        field.alignment = .center
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
-        body.addSubview(field)
+        addSubview(field)
         NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 2),
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             field.trailingAnchor.constraint(equalTo: grip.leadingAnchor, constant: -4),
-            field.centerYAnchor.constraint(equalTo: body.centerYAnchor),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
-        label.isHidden = true
+        content.isHidden = true
         nameField = field
         onRenameEnd = onEnd
         passesClicksToContent = true
@@ -570,7 +793,7 @@ private final class TabButton: BarItem, NSTextFieldDelegate {
         field.removeFromSuperview()
         passesClicksToContent = false
         if keep, !name.isEmpty { label.stringValue = name }
-        label.isHidden = false
+        content.isHidden = false
         onEnd(keep ? name : nil, refocus)
     }
 }
@@ -645,7 +868,9 @@ final class StackTabsController {
 
     private var bars: [Int: StackTabBar] = [:]
 
-    func sync(_ entries: [Entry], color: NSColor, actions: Actions) {
+    /// Shows a bar for each entry. The bars of the `keeping` stacks stay as they are,
+    /// and the other bars close.
+    func sync(_ entries: [Entry], keeping: Set<Int>, actions: Actions) {
         var seen = Set<Int>()
         for entry in entries {
             seen.insert(entry.stack.id)
@@ -657,9 +882,9 @@ final class StackTabsController {
             bar.onColor = actions.color
             let stack = entry.stack
             bar.onDrag = { actions.drag(stack, $0) }
-            bar.update(tabs: entry.tabs, active: entry.stack.active, color: color, frame: entry.frame, above: entry.stack.active)
+            bar.update(tabs: entry.tabs, active: entry.stack.active, frame: entry.frame, above: entry.stack.active)
         }
-        for (id, bar) in bars where !seen.contains(id) {
+        for (id, bar) in bars where !seen.contains(id) && !keeping.contains(id) {
             bar.disappear()
             bars.removeValue(forKey: id)
         }
