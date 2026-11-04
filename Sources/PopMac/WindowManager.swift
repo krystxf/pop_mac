@@ -596,7 +596,11 @@ final class WindowManager {
         spaceSwitches.switched(at: ProcessInfo.processInfo.systemUptime)
         exitTileMode()
         // Each Space keeps its own outline, which slides in and out with the Space.
-        hint.keep(spaces: Set(Spaces.allSpaces().values.joined()))
+        // A failed query of the Spaces keeps them all.
+        let spaces = Set(Spaces.allSpaces().values.joined())
+        if !spaces.isEmpty { hint.keep(spaces: spaces) }
+        // The tab bars of the Space that comes into view show what changed while it was away.
+        scheduleStacksRefresh()
         scheduleFocusCheck()
         mouse?.spaceChanged()
         offscreenStrikes.removeAll()
@@ -980,7 +984,11 @@ final class WindowManager {
     }
 
     private func updateHint() {
-        guard settings.activeHint, tileMode == nil else {
+        guard settings.activeHint else {
+            hint.hideAll()
+            return
+        }
+        guard tileMode == nil else {
             hint.hide()
             return
         }

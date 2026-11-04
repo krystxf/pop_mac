@@ -80,6 +80,8 @@ final class StackTabBar: NSPanel, GlidingWindow {
         } else {
             track.wantsLayer = true
             track.layer?.backgroundColor = NSColor(white: 0.14, alpha: 0.92).cgColor
+            // The track is dark in both appearances, so the tabs take the dark look and stay readable.
+            appearance = NSAppearance(named: .darkAqua)
             tabsView.translatesAutoresizingMaskIntoConstraints = false
             track.addSubview(tabsView)
             NSLayoutConstraint.activate([
@@ -159,8 +161,9 @@ final class StackTabBar: NSPanel, GlidingWindow {
         } else {
             track.layer?.cornerRadius = radius
         }
-        // A bar left on another Space, as when its stack moved there, comes to this one.
-        if isVisible, !isOnSpaceInView { orderOut(nil) }
+        // A bar left on another Space, as when its stack moved there or to another display,
+        // comes to its window's Space.
+        if isVisible, !isOnSpaceInView || isOnOtherSpace(than: window) { orderOut(nil) }
         appear(at: Displays.toCocoa(frame))
         order(.above, relativeTo: Int(window))
     }

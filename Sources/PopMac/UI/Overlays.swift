@@ -245,6 +245,13 @@ extension NSWindow {
         guard isVisible, let space = Spaces.space(of: CGWindowID(windowNumber)) else { return false }
         return Spaces.inView().contains(space)
     }
+
+    /// True if the window is ordered in on another Space than `window`.
+    func isOnOtherSpace(than window: WindowID) -> Bool {
+        guard isVisible, let space = Spaces.space(of: CGWindowID(windowNumber)),
+              let other = Spaces.space(of: window) else { return false }
+        return space != other
+    }
 }
 
 /// One outline per Space, around the focused window.
@@ -264,8 +271,10 @@ final class Outlines {
     }
 
     /// True if an outline shows around `window` now.
+    ///
+    /// An outline left on a Space out of view does not count.
     func surrounds(_ window: WindowID) -> Bool {
-        outlines.values.contains { $0.surrounds(window) }
+        outlines.values.contains { $0.surrounds(window) && $0.isOnSpaceInView }
     }
 
     func reorder(after window: WindowID) {
@@ -277,6 +286,13 @@ final class Outlines {
     /// Hides the outlines on the Spaces in view. The outlines of other Spaces stay for their return.
     func hide() {
         for outline in outlines.values where outline.isOnSpaceInView {
+            outline.disappear()
+        }
+    }
+
+    /// Hides the outlines on every Space, as when the outline is turned off.
+    func hideAll() {
+        for outline in outlines.values where outline.isVisible {
             outline.disappear()
         }
     }
