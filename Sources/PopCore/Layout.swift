@@ -59,7 +59,21 @@ public struct TabLabel: Codable, Equatable {
 
 /// The pastel colors a stack tab can have.
 public enum TabColor: String, Codable, CaseIterable {
-    case rose, peach, butter, mint, aqua, sky, lavender, lilac
+    case red, orange, yellow, green, teal, blue, purple, pink
+
+    /// The pastel colors of earlier versions, by the color that replaced them.
+    private static let legacy: [String: TabColor] = [
+        "rose": .red, "peach": .orange, "butter": .yellow, "mint": .green,
+        "aqua": .teal, "sky": .blue, "lavender": .purple, "lilac": .pink,
+    ]
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let color = TabColor(rawValue: raw) ?? Self.legacy[raw] else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown tab color \(raw)"))
+        }
+        self = color
+    }
 }
 
 /// The tree of one display on one Space.

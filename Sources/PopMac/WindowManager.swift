@@ -30,7 +30,7 @@ final class WindowManager {
     private(set) var displays: [Display] = Displays.all()
 
     let overlay = OverlayWindow()
-    let hint = HintWindow()
+    let hint = Outlines()
     /// The dark layers over the wallpaper, by display.
     private var wallpaperDims: [MonitorID: WallpaperDimWindow] = [:]
     let animator = WindowAnimator()
@@ -229,9 +229,7 @@ final class WindowManager {
         }
     }
 
-    /// The system accent color, for the selected stack tab and, before macOS 26, the highlights.
-    ///
-    /// The color is resolved, so a new accent color counts as a change.
+    /// The system accent color, for the outline and the drop preview.
     private var accentColor: NSColor {
         NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .controlAccentColor
     }
@@ -597,7 +595,12 @@ final class WindowManager {
     private func onSpaceChanged() {
         spaceSwitches.switched(at: ProcessInfo.processInfo.systemUptime)
         exitTileMode()
-        hint.hide()
+        // Each Space keeps its own outline, which slides in and out with the Space.
+        // A failed query of the Spaces keeps them all.
+        let spaces = Set(Spaces.allSpaces().values.joined())
+        if !spaces.isEmpty { hint.keep(spaces: spaces) }
+        // The tab bars of the Space that comes into view show what changed while it was away.
+        scheduleStacksRefresh()
         scheduleFocusCheck()
         mouse?.spaceChanged()
         offscreenStrikes.removeAll()
@@ -738,10 +741,10 @@ final class WindowManager {
     }
 
     /// The workspace key from the window's real frame and Space.
-    func actualKey(of id: WindowID) -> WorkspaceKey? {
+    func actualKey(of id: WindowID, frame: Rect? = nil) -> WorkspaceKey? {
         // AX reports the app's real frame; the window-server frame includes Space animation offsets.
         // The window server's frame is the fallback when the app does not answer.
-        guard let window = windows[id], let frame = window.frame ?? Displays.onScreenFrame(of: id),
+        guard let window = windows[id], let frame = frame ?? window.frame ?? Displays.onScreenFrame(of: id),
               let display = Displays.display(for: frame, in: displays)
         else { return nil }
         // After a window crosses displays, macOS can still report its old display's Space.
@@ -981,27 +984,41 @@ final class WindowManager {
     }
 
     private func updateHint() {
-        guard settings.activeHint, tileMode == nil,
-              let id = prevFocused[1], let window = windows[id],
+        guard settings.activeHint else {
+            hint.hideAll()
+            return
+        }
+        guard tileMode == nil else {
+            hint.hide()
+            return
+        }
+        if showHint() { return }
+        if isSwitchingSpaces {
+            // While a Space switch settles, the frontmost app and the frames can still be the
+            // old Space's. Hiding the outline then would make it flash. Look again a moment later.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                MainActor.assumeIsolated { self?.scheduleHint() }
+            }
+        } else {
+            hint.hide()
+        }
+    }
+
+    /// Shows the outline around the focused window. Returns false if there is none to show now.
+    private func showHint() -> Bool {
+        guard let id = prevFocused[1], let window = windows[id],
               NSWorkspace.shared.frontmostApplication.flatMap(Processes.pid(of:)) == window.pid,
               // The window server knows the frame without asking the app, which may be busy.
               // A window that glides to a new frame has its outline glide there too.
               var frame = Displays.onScreenFrame(of: id).map({ animator.target(of: id) ?? $0 }), !window.isFullscreen
-        else {
-            hint.hide()
-            return
-        }
+        else { return false }
         // A hidden outline waits for its window to arrive, instead of appearing around an empty tile.
-        if animator.target(of: id) != nil, !hint.surrounds(id) {
-            hint.hide()
-            return
-        }
+        if animator.target(of: id) != nil, !hint.surrounds(id) { return false }
         // In Mission Control and App Exposé, and while they close, the window server
         // reports the frame of the window's thumbnail. Wait for the real frame.
         if animator.target(of: id) == nil, let real = window.frame, !real.approximatelyEquals(frame, tolerance: 2) {
-            hint.hide()
             retryHint()
-            return
+            return false
         }
         hintWaitStart = nil
         if let autoTiler, autoTiler.findStack(id) != nil {
@@ -1009,8 +1026,12 @@ final class WindowManager {
             frame.y -= autoTiler.forest.tabHeight
             frame.height += autoTiler.forest.tabHeight
         }
-        hint.show(around: frame, of: id)
+        // Checked against the window's display: after a window crosses displays, macOS
+        // can still report the old display's Space.
+        let space = actualKey(of: id, frame: frame)?.space ?? Spaces.space(of: id) ?? Spaces.activeSpace
+        hint.show(around: frame, of: id, on: space)
         tabs.reorder(above: id)
+        return true
     }
 
     /// Darkens the wallpaper of each display that shows exactly one window.
@@ -1068,10 +1089,15 @@ final class WindowManager {
 
         let visible = Set(displays.map { currentKey(of: $0) })
         let height = autoTiler.forest.tabHeight
+        // Stacks on Spaces out of view keep their bars. macOS shows a bar again with its
+        // Space, so the tabs slide in with the windows instead of fading in after them.
+        var hidden = Set<Int>()
         let entries = autoTiler.forest.allStacks().compactMap { stack -> StackTabsController.Entry? in
-            guard let rect = stack.rect, let fork = autoTiler.findStack(stack.active)?.fork,
-                  visible.contains(autoTiler.forest.toplevel(of: fork).workspace)
-            else { return nil }
+            guard let rect = stack.rect, let fork = autoTiler.findStack(stack.active)?.fork else { return nil }
+            guard visible.contains(autoTiler.forest.toplevel(of: fork).workspace) else {
+                hidden.insert(stack.id)
+                return nil
+            }
             let tabs = stack.entities.compactMap { id -> StackTabBar.Tab? in
                 guard let window = windows[id] else { return nil }
                 let label = tabLabels[id]
@@ -1102,7 +1128,7 @@ final class WindowManager {
         } color: { [weak self] id, color in
             MainActor.assumeIsolated { self?.changeLabel(of: id) { $0.color = color } }
         }
-        tabs.sync(entries, color: accentColor, actions: actions)
+        tabs.sync(entries, keeping: hidden, actions: actions)
         scheduleHint()
     }
 
