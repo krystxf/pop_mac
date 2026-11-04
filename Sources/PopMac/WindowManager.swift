@@ -37,8 +37,6 @@ final class WindowManager {
     private var hintScheduled = false
     /// When the outline started to wait for its window's real frame.
     private var hintWaitStart: Date?
-    /// When the Space last changed. While a switch settles, the outline does not hide.
-    private var spaceChangeTime = Date.distantPast
     private let tabs = StackTabsController()
     private var stacksScheduled = false
     /// When the drop preview of a dragged stack was last updated.
@@ -585,7 +583,6 @@ final class WindowManager {
         spaceSwitches.switched(at: ProcessInfo.processInfo.systemUptime)
         exitTileMode()
         // Each Space keeps its own outline, which slides in and out with the Space.
-        spaceChangeTime = Date()
         hint.keep(spaces: Set(Spaces.allSpaces().values.joined()))
         scheduleFocusCheck()
         mouse?.spaceChanged()
@@ -728,9 +725,9 @@ final class WindowManager {
     }
 
     /// The workspace key from the window's real frame and Space.
-    func actualKey(of id: WindowID) -> WorkspaceKey? {
+    func actualKey(of id: WindowID, frame: Rect? = nil) -> WorkspaceKey? {
         // AX reports the app's real frame; the window-server frame includes Space animation offsets.
-        guard let window = windows[id], let frame = window.frame,
+        guard let window = windows[id], let frame = frame ?? window.frame,
               let display = Displays.display(for: frame, in: displays)
         else { return nil }
         // After a window crosses displays, macOS can still report its old display's Space.
@@ -975,7 +972,7 @@ final class WindowManager {
             return
         }
         if showHint() { return }
-        if Date().timeIntervalSince(spaceChangeTime) < 0.7 {
+        if isSwitchingSpaces {
             // While a Space switch settles, the frontmost app and the frames can still be the
             // old Space's. Hiding the outline then would make it flash. Look again a moment later.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -1010,7 +1007,7 @@ final class WindowManager {
         }
         // Checked against the window's display: after a window crosses displays, macOS
         // can still report the old display's Space.
-        let space = actualKey(of: id)?.space ?? Spaces.space(of: id) ?? Spaces.activeSpace
+        let space = actualKey(of: id, frame: frame)?.space ?? Spaces.space(of: id) ?? Spaces.activeSpace
         hint.show(around: frame, of: id, on: space)
         tabs.reorder(above: id)
         return true
