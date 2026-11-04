@@ -65,7 +65,10 @@ final class WindowManager {
     private var snapBackPending = Set<WindowID>()
     private var snapBackScheduled = false
     private var verifyScheduled = false
-    private var spaceScanScheduled = false
+    /// Window-server frames can be translated across displays during a Space animation.
+    private(set) var spaceSwitches = SpaceSwitchClock()
+    private var spaceScan: DispatchWorkItem?
+    var isSwitchingSpaces: Bool { spaceSwitches.isSwitching(at: ProcessInfo.processInfo.systemUptime) }
     private var departureTimer: Timer?
     /// How many checks in a row found each tiled window off screen.
     private var offscreenStrikes: [WindowID: Int] = [:]
@@ -353,7 +356,8 @@ final class WindowManager {
                 if NSEvent.pressedMouseButtons & 1 != 0 { hint.hide() } else { scheduleHint() }
             }
             if let id = moved,
-               // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
+               // Mouse drags are handled at mouse-up. Anything else snaps back to its tile,
+               // once a Space switch has settled.
                autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
                Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5
             {
@@ -440,27 +444,39 @@ final class WindowManager {
         guard !snapBackScheduled else { return }
         snapBackScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.snapBackScheduled = false
-                let ids = self.snapBackPending
-                self.snapBackPending.removeAll()
-                guard let autoTiler = self.autoTiler, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+            MainActor.assumeIsolated { self?.snapBack() }
+        }
+    }
 
-                var tiled = Set<ObjectIdentifier>()
-                for id in ids {
-                    guard let window = self.windows[id], let fork = autoTiler.attached[id] else { continue }
-                    if window.isFullscreen {
-                        // Native full screen moves the window to its own Space.
-                        self.detachQuietly(id)
-                        continue
-                    }
-                    let top = autoTiler.forest.toplevel(of: fork)
-                    if tiled.insert(ObjectIdentifier(top)).inserted {
-                        Log.debug("window \(id) left its tile; snapping back")
-                        autoTiler.tile(top, area: top.area)
-                    }
-                }
+    private func snapBack() {
+        snapBackScheduled = false
+        let wait = spaceSwitches.remaining(at: ProcessInfo.processInfo.systemUptime)
+        if wait > 0 {
+            // The frames are wrong while a Space switch settles. The windows wait, and go
+            // after the Space scan, which first moves windows that changed Space to their trees.
+            snapBackScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.05) { [weak self] in
+                MainActor.assumeIsolated { self?.snapBack() }
+            }
+            return
+        }
+        let ids = snapBackPending
+        snapBackPending.removeAll()
+        guard let autoTiler, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+
+        var tiled = Set<ObjectIdentifier>()
+        for id in ids {
+            guard let window = windows[id], let fork = autoTiler.attached[id] else { continue }
+            if window.isFullscreen {
+                // Native full screen moves the window to its own Space.
+                detachQuietly(id)
+                continue
+            }
+            let top = autoTiler.forest.toplevel(of: fork)
+            if tiled.insert(ObjectIdentifier(top)).inserted {
+                Log.debug("window \(id) left its tile; snapping back")
+                // A window that is in its tile does not move.
+                autoTiler.tile(top, area: top.area)
             }
         }
     }
@@ -579,18 +595,24 @@ final class WindowManager {
     // MARK: - Spaces and displays
 
     private func onSpaceChanged() {
+        spaceSwitches.switched(at: ProcessInfo.processInfo.systemUptime)
         exitTileMode()
         hint.hide()
         scheduleFocusCheck()
-        guard !spaceScanScheduled else { return }
-        spaceScanScheduled = true
-        // The window list lags slightly behind the Space switch.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            MainActor.assumeIsolated {
-                self?.spaceScanScheduled = false
-                self?.scanVisibleWindows()
-            }
+        mouse?.spaceChanged()
+        offscreenStrikes.removeAll()
+        untiledStrikes.removeAll()
+        scheduleSpaceScan()
+    }
+
+    /// Every switch restarts the quiet period, including switches in a rapid sequence.
+    private func scheduleSpaceScan() {
+        spaceScan?.cancel()
+        let scan = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.scanVisibleWindows() }
         }
+        spaceScan = scan
+        DispatchQueue.main.asyncAfter(deadline: .now() + SpaceSwitchClock.quietPeriod, execute: scan)
     }
 
     /// Keeps the trees in step with windows that moved between Spaces.
@@ -604,7 +626,7 @@ final class WindowManager {
     /// Both must hold on two checks in a row, because windows also leave and
     /// enter the screen for a moment while a Space switch animates.
     private func checkDepartedWindows() {
-        guard let autoTiler, NSEvent.pressedMouseButtons & 1 == 0, !SpaceMover.isMoving else { return }
+        guard !isSwitchingSpaces, let autoTiler, NSEvent.pressedMouseButtons & 1 == 0, !SpaceMover.isMoving else { return }
 
         let visible = Set(Displays.onScreenWindowIDs())
         let visibleKeys = Set(displays.map { currentKey(of: $0) })
@@ -649,6 +671,11 @@ final class WindowManager {
 
     /// Finds new windows on the visible Spaces, and fixes windows that changed Space.
     func scanVisibleWindows() {
+        // A window that the mouse drags across Spaces is placed by its drop, not by the scan.
+        guard !isSwitchingSpaces, mouse?.isBusy(generation: spaceSwitches.generation) != true else {
+            scheduleSpaceScan()
+            return
+        }
         displays = Displays.all()
         for observer in observers.values {
             for element in observer.windows() {
@@ -712,7 +739,9 @@ final class WindowManager {
 
     /// The workspace key from the window's real frame and Space.
     func actualKey(of id: WindowID) -> WorkspaceKey? {
-        guard let window = windows[id], let frame = Displays.onScreenFrame(of: id) ?? window.frame,
+        // AX reports the app's real frame; the window-server frame includes Space animation offsets.
+        // The window server's frame is the fallback when the app does not answer.
+        guard let window = windows[id], let frame = window.frame ?? Displays.onScreenFrame(of: id),
               let display = Displays.display(for: frame, in: displays)
         else { return nil }
         // After a window crosses displays, macOS can still report its old display's Space.
@@ -1163,8 +1192,10 @@ final class WindowManager {
 
     /// Handles the end of a mouse drag or resize of a window.
     ///
-    /// - Parameter stack: True if the Super modifiers were held at the drop, so a drop on a window's center stacks.
-    func onGrabEnd(_ id: WindowID, original: Rect, stack: Bool = false) {
+    /// - Parameters:
+    ///   - cursor: The cursor at the mouse-up, which places a moved window.
+    ///   - stack: True if the Super modifiers were held at the drop, so a drop on a window's center stacks.
+    func onGrabEnd(_ id: WindowID, original: Rect, cursor: Point, stack: Bool = false) {
         overlay.hide()
         defer { scheduleHint() }
         guard let window = windows[id], let current = window.frame else { return }
@@ -1189,7 +1220,6 @@ final class WindowManager {
         if isResize {
             autoTiler.resizeByMouse(id, from: original, to: current)
         } else {
-            let cursor = Displays.cursor
             guard let display = Displays.display(at: cursor, in: displays) else { return }
             let key = currentKey(of: display)
             let previous = autoTiler.attached[id].map { autoTiler.forest.toplevel(of: $0).workspace }
@@ -1373,6 +1403,10 @@ extension WindowManager: @preconcurrency TilingEnvironment {
 
     private func verify() {
         verifyScheduled = false
+        guard !isSwitchingSpaces else {
+            scheduleVerify()
+            return
+        }
         let pending = pendingVerify
         pendingVerify.removeAll()
         var retile = Set<WindowID>()
