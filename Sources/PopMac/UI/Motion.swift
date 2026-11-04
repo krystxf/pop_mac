@@ -66,6 +66,17 @@ extension GlidingWindow {
             if moves { animator().setFrame(frame, display: true) }
             animator().alphaValue = 1
         }
+        // AppKit pauses the animations of a window that is off the active Space, as during a
+        // Space switch. A paused fade-in leaves the window in place but invisible. When the
+        // animation's time is up, put the window in its end state.
+        let generation = fadeGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + (animated ? Motion.duration : 0) + 0.1) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.fadeGeneration == generation, self.isVisible else { return }
+                if self.alphaValue != 1 { self.alphaValue = 1 }
+                if self.frame != frame { self.setFrame(frame, display: true) }
+            }
+        }
     }
 
     /// Fades the window out, then orders it out.
@@ -82,11 +93,19 @@ extension GlidingWindow {
             context.duration = Motion.fadeDuration
             animator().alphaValue = 0
         } completionHandler: {
-            MainActor.assumeIsolated {
-                guard self.fadeGeneration == generation else { return }
-                self.isFadingOut = false
-                self.orderOut(nil)
-            }
+            MainActor.assumeIsolated { self.finishFadeOut(generation) }
         }
+        // A fade-out paused off the active Space never calls its completion handler.
+        // Without this, the window stays ordered in, almost transparent.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Motion.fadeDuration + 0.1) { [weak self] in
+            MainActor.assumeIsolated { self?.finishFadeOut(generation) }
+        }
+    }
+
+    /// Orders the window out at the end of the fade-out with `generation`, unless it was shown again.
+    private func finishFadeOut(_ generation: Int) {
+        guard fadeGeneration == generation, isFadingOut else { return }
+        isFadingOut = false
+        orderOut(nil)
     }
 }

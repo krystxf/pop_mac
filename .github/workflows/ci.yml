@@ -137,7 +137,7 @@ jobs:
           tap="$(brew --repository popmac/check)"
           mkdir -p "$tap/Casks"
           sed -e "s/@VERSION@/0.0.0/" -e "s/@SHA256@/$(printf '0%.0s' {1..64})/" packaging/homebrew/pop-mac.rb > "$tap/Casks/pop-mac.rb"
-          if brew commands | grep -qx trust; then brew trust popmac/check; fi
+          if brew commands | grep -x trust >/dev/null; then brew trust popmac/check; fi
           brew style --cask popmac/check/pop-mac
           brew audit --cask --strict popmac/check/pop-mac
 

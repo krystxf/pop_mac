@@ -7,9 +7,12 @@ import Foundation
 /// again. Windows that are gone by then drop out, and their neighbors fill the space.
 public struct SavedLayout: Codable, Equatable {
     public var trees: [SavedTree]
+    /// The names and colors of stack tabs. Layouts from older versions have none.
+    public var tabs: [TabLabel]?
 
-    public init(trees: [SavedTree]) {
+    public init(trees: [SavedTree], tabs: [TabLabel]? = nil) {
         self.trees = trees
+        self.tabs = tabs
     }
 
     public static var defaultURL: URL {
@@ -25,6 +28,38 @@ public struct SavedLayout: Codable, Equatable {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(self).write(to: url, options: .atomic)
     }
+}
+
+/// The name and color that the user gave to a window's stack tab.
+public struct TabLabel: Codable, Equatable {
+    public var window: WindowID
+    /// Shown instead of the window's title. Nil shows the title.
+    public var name: String?
+    public var color: TabColor?
+
+    public init(window: WindowID, name: String? = nil, color: TabColor? = nil) {
+        self.window = window
+        self.name = name
+        self.color = color
+    }
+
+    /// True if the label changes nothing, so it need not be kept.
+    public var isEmpty: Bool { name == nil && color == nil }
+
+    private enum CodingKeys: String, CodingKey { case window, name, color }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        window = try container.decode(WindowID.self, forKey: .window)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        // A color that this version does not know drops out, instead of the whole layout.
+        color = try? container.decodeIfPresent(TabColor.self, forKey: .color)
+    }
+}
+
+/// The pastel colors a stack tab can have.
+public enum TabColor: String, Codable, CaseIterable {
+    case rose, peach, butter, mint, aqua, sky, lavender, lilac
 }
 
 /// The tree of one display on one Space.
