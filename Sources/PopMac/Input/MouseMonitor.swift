@@ -6,7 +6,7 @@ import PopCore
 /// macOS has no "grab started" event. At a mouse-down, the monitor records
 /// every managed window near the cursor. A resize can start a few points
 /// outside a window, in the gap between tiles. At the mouse-up, each of those
-/// windows whose frame changed was grabbed.
+/// windows whose frame changed during a mouse drag was grabbed.
 @MainActor
 final class MouseMonitor {
     private weak var manager: WindowManager?
@@ -15,6 +15,9 @@ final class MouseMonitor {
     private var candidates: [WindowID: Rect] = [:]
     private var downTime = Date.distantPast
     private var dragged: WindowID?
+    private var receivedDrag = false
+    /// Invalidates delayed settle callbacks after a new click or a Space switch.
+    private var grabGeneration = 0
     private var lastCheck = Date.distantPast
     private var previewTimer: Timer?
 
@@ -40,13 +43,29 @@ final class MouseMonitor {
     }
 
     private func mouseDown() {
-        dragged = nil
+        cancelGrab()
         downTime = Date()
-        candidates = SpaceMover.isMoving ? [:] : windowsNearCursor()
+        candidates = SpaceMover.isMoving || manager?.isSwitchingSpaces == true ? [:] : windowsNearCursor()
+    }
+
+    /// A Space switch invalidates both the current grab and any delayed mouse-up work.
+    func cancelGrab() {
+        grabGeneration += 1
+        candidates = [:]
+        dragged = nil
+        receivedDrag = false
+        previewTimer?.invalidate()
+        previewTimer = nil
+        manager?.overlay.hide()
     }
 
     /// Starts the drop preview once one of the candidates moves without a size change.
     private func mouseDragged() {
+        guard manager?.isSwitchingSpaces != true, !SpaceMover.isMoving else {
+            cancelGrab()
+            return
+        }
+        receivedDrag = true
         guard dragged == nil, !candidates.isEmpty, Date().timeIntervalSince(lastCheck) > 0.1, manager != nil else { return }
         lastCheck = Date()
 
@@ -79,16 +98,20 @@ final class MouseMonitor {
         // The active hint hides while the mouse moves the focused window.
         manager?.scheduleHint()
 
-        let grabbed = candidates
+        let grabbed = receivedDrag ? candidates : [:]
+        let generation = grabGeneration
         let since = downTime
         let stack = manager?.holdsSuper(flags) ?? false
         candidates = [:]
         dragged = nil
-        guard !grabbed.isEmpty else { return }
+        receivedDrag = false
+        guard manager?.isSwitchingSpaces != true, !grabbed.isEmpty else { return }
 
         for (id, rect) in grabbed {
             settle(id, previous: nil, attempts: 10) { [weak self] in
-                guard let manager = self?.manager, !manager.wasMovedByPopMac(id, since: since) else { return }
+                guard let self, grabGeneration == generation,
+                      let manager, !manager.isSwitchingSpaces,
+                      !manager.wasMovedByPopMac(id, since: since) else { return }
                 manager.onGrabEnd(id, original: rect, stack: stack)
             }
         }

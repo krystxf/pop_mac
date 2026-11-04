@@ -65,7 +65,10 @@ final class WindowManager {
     private var snapBackPending = Set<WindowID>()
     private var snapBackScheduled = false
     private var verifyScheduled = false
-    private var spaceScanScheduled = false
+    private var spaceChangeTime = Date.distantPast
+    private var spaceScan: DispatchWorkItem?
+    /// Window-server frames can be translated across displays during a Space animation.
+    var isSwitchingSpaces: Bool { Date().timeIntervalSince(spaceChangeTime) < 0.7 }
     private var departureTimer: Timer?
     /// How many checks in a row found each tiled window off screen.
     private var offscreenStrikes: [WindowID: Int] = [:]
@@ -354,7 +357,7 @@ final class WindowManager {
             }
             if let id = moved,
                // Mouse drags are handled at mouse-up. Anything else snaps back to its tile.
-               autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
+               autoTiler?.isAttached(id) == true, !isSwitchingSpaces, NSEvent.pressedMouseButtons & 1 == 0,
                Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5
             {
                 scheduleSnapBack(id)
@@ -445,7 +448,7 @@ final class WindowManager {
                 self.snapBackScheduled = false
                 let ids = self.snapBackPending
                 self.snapBackPending.removeAll()
-                guard let autoTiler = self.autoTiler, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+                guard !self.isSwitchingSpaces, let autoTiler = self.autoTiler, NSEvent.pressedMouseButtons & 1 == 0 else { return }
 
                 var tiled = Set<ObjectIdentifier>()
                 for id in ids {
@@ -579,18 +582,25 @@ final class WindowManager {
     // MARK: - Spaces and displays
 
     private func onSpaceChanged() {
+        spaceChangeTime = Date()
         exitTileMode()
         hint.hide()
         scheduleFocusCheck()
-        guard !spaceScanScheduled else { return }
-        spaceScanScheduled = true
-        // The window list lags slightly behind the Space switch.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            MainActor.assumeIsolated {
-                self?.spaceScanScheduled = false
-                self?.scanVisibleWindows()
-            }
+        mouse?.cancelGrab()
+        snapBackPending.removeAll()
+        offscreenStrikes.removeAll()
+        untiledStrikes.removeAll()
+        scheduleSpaceScan()
+    }
+
+    /// Every switch restarts the quiet period, including switches in a rapid sequence.
+    private func scheduleSpaceScan() {
+        spaceScan?.cancel()
+        let scan = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.scanVisibleWindows() }
         }
+        spaceScan = scan
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: scan)
     }
 
     /// Keeps the trees in step with windows that moved between Spaces.
@@ -604,7 +614,7 @@ final class WindowManager {
     /// Both must hold on two checks in a row, because windows also leave and
     /// enter the screen for a moment while a Space switch animates.
     private func checkDepartedWindows() {
-        guard let autoTiler, NSEvent.pressedMouseButtons & 1 == 0, !SpaceMover.isMoving else { return }
+        guard !isSwitchingSpaces, let autoTiler, NSEvent.pressedMouseButtons & 1 == 0, !SpaceMover.isMoving else { return }
 
         let visible = Set(Displays.onScreenWindowIDs())
         let visibleKeys = Set(displays.map { currentKey(of: $0) })
@@ -649,6 +659,10 @@ final class WindowManager {
 
     /// Finds new windows on the visible Spaces, and fixes windows that changed Space.
     func scanVisibleWindows() {
+        guard !isSwitchingSpaces else {
+            scheduleSpaceScan()
+            return
+        }
         displays = Displays.all()
         for observer in observers.values {
             for element in observer.windows() {
@@ -712,7 +726,8 @@ final class WindowManager {
 
     /// The workspace key from the window's real frame and Space.
     func actualKey(of id: WindowID) -> WorkspaceKey? {
-        guard let window = windows[id], let frame = Displays.onScreenFrame(of: id) ?? window.frame,
+        // AX reports the app's real frame; the window-server frame includes Space animation offsets.
+        guard let window = windows[id], let frame = window.frame,
               let display = Displays.display(for: frame, in: displays)
         else { return nil }
         // After a window crosses displays, macOS can still report its old display's Space.
@@ -1373,6 +1388,10 @@ extension WindowManager: @preconcurrency TilingEnvironment {
 
     private func verify() {
         verifyScheduled = false
+        guard !isSwitchingSpaces else {
+            scheduleVerify()
+            return
+        }
         let pending = pendingVerify
         pendingVerify.removeAll()
         var retile = Set<WindowID>()
