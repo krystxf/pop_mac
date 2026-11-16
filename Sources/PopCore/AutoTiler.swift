@@ -602,6 +602,18 @@ public final class AutoTiler {
         }
     }
 
+    /// The half of `area` that a window dropped at the cursor takes: the half on the side nearest to the cursor.
+    private func dropHalf(of area: Rect, cursor: Point) -> Rect {
+        let (orientation, swap) = cursorPlacement(area: area, cursor: cursor)
+        let hw = area.width / 2, hh = area.height / 2
+        return switch (orientation, swap) {
+        case (.horizontal, true): Rect(area.x, area.y, hw, area.height)
+        case (.horizontal, false): Rect(area.x + hw, area.y, hw, area.height)
+        case (.vertical, true): Rect(area.x, area.y, area.width, hh)
+        case (.vertical, false): Rect(area.x, area.y + hh, area.width, hh)
+        }
+    }
+
     /// The window that a dragged window would attach to if dropped at the cursor.
     public func dropTarget(_ window: WindowID, cursor: Point, key: WorkspaceKey) -> WindowID? {
         if let found = env.windows(at: cursor, key: key).first(where: { $0 != window && isAttached($0) }) {
@@ -676,15 +688,7 @@ public final class AutoTiler {
             return nil
         }
 
-        let (orientation, swap) = cursorPlacement(area: area, cursor: cursor)
-        let hw = area.width / 2, hh = area.height / 2
-        let half = switch (orientation, swap) {
-        case (.horizontal, true): Rect(area.x, area.y, hw, area.height)
-        case (.horizontal, false): Rect(area.x + hw, area.y, hw, area.height)
-        case (.vertical, true): Rect(area.x, area.y, area.width, hh)
-        case (.vertical, false): Rect(area.x, area.y + hh, area.width, hh)
-        }
-        return DropPreview(area: half)
+        return DropPreview(area: dropHalf(of: area, cursor: cursor))
     }
 
     /// Handles a tiled window that the user dropped with the mouse.
@@ -819,15 +823,7 @@ public final class AutoTiler {
             return DropPreview(area: tile, action: merge ? .stack : .swap)
         }
         guard let area = forest.attached[target] === fork ? fork.area : env.windowRect(target) else { return nil }
-        let (orientation, swap) = cursorPlacement(area: area, cursor: cursor)
-        let hw = area.width / 2, hh = area.height / 2
-        let half = switch (orientation, swap) {
-        case (.horizontal, true): Rect(area.x, area.y, hw, area.height)
-        case (.horizontal, false): Rect(area.x + hw, area.y, hw, area.height)
-        case (.vertical, true): Rect(area.x, area.y, area.width, hh)
-        case (.vertical, false): Rect(area.x, area.y + hh, area.width, hh)
-        }
-        return DropPreview(area: half)
+        return DropPreview(area: dropHalf(of: area, cursor: cursor))
     }
 
     /// Moves a whole stack that the user dropped with the mouse.

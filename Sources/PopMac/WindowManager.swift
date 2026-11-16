@@ -307,6 +307,15 @@ final class WindowManager {
         return window
     }
 
+    /// Starts tracking every window that the apps list now: their windows on the Spaces in view.
+    private func registerAllWindows() {
+        for observer in observers.values {
+            for element in observer.windows() {
+                register(element, observer)
+            }
+        }
+    }
+
     /// Finds the tracked window for an element, even after it was destroyed.
     ///
     /// Comparing elements needs no call to the app, which may be busy, so it comes first.
@@ -708,11 +717,7 @@ final class WindowManager {
             return
         }
         displays = Displays.all()
-        for observer in observers.values {
-            for element in observer.windows() {
-                register(element, observer)
-            }
-        }
+        registerAllWindows()
 
         if let autoTiler {
             restoreSavedTrees()
@@ -919,11 +924,7 @@ final class WindowManager {
         guard savedTrees.contains(where: { visible.contains($0.key) }) else { return }
 
         // The windows of a Space are not known before the first visit.
-        for observer in observers.values {
-            for element in observer.windows() {
-                register(element, observer)
-            }
-        }
+        registerAllWindows()
         savedTrees.removeAll { tree in
             guard visible.contains(tree.key) else { return false }
             let restored = autoTiler.restore(tree) { [self] id in
@@ -1070,10 +1071,10 @@ final class WindowManager {
     private func updateWallpaperDims() {
         var counts: [MonitorID: Int] = [:]
         if settings.wallpaperDim > 0 {
-            for (id, frame) in Displays.onScreenFrames() where windows[id] != nil {
-                if let stack = autoTiler?.findStack(id)?.stack, stack.active != id { continue }
+            for window in Displays.onScreenWindows() where windows[window.id] != nil {
+                if let stack = autoTiler?.findStack(window.id)?.stack, stack.active != window.id { continue }
                 // Hidden stack tabs and windows off screen do not count.
-                guard let display = displays.first(where: { $0.frame.contains(frame.center) }) else { continue }
+                guard let display = displays.first(where: { $0.frame.contains(window.frame.center) }) else { continue }
                 counts[display.id, default: 0] += 1
             }
         }
@@ -1418,9 +1419,9 @@ extension WindowManager: @preconcurrency TilingEnvironment {
     ///
     /// The frames come from the window server, so a drag preview never waits for an app.
     func windows(at point: Point, key: WorkspaceKey) -> [WindowID] {
-        Displays.onScreenFrames().compactMap { id, frame in
-            guard windows[id] != nil, frame.contains(point), workspaceKey(of: id) == key else { return nil }
-            return id
+        Displays.onScreenWindows().compactMap { window in
+            guard windows[window.id] != nil, window.frame.contains(point), workspaceKey(of: window.id) == key else { return nil }
+            return window.id
         }
     }
 
