@@ -149,9 +149,13 @@ final class WindowManager {
                 if let pid = Processes.pid(of: app) { self?.removeApp(pid) }
             }
         }
-        center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+        center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             MainActor.assumeIsolated {
                 guard let self else { return }
+                // An app is not watched yet if it became a regular app after its launch,
+                // or if it did not answer at its launch.
+                if let app { self.addApp(app, attempt: Self.launchAttempts - 1) }
                 if let focused = self.focusedWindow() { self.onFocused(focused) }
                 self.scheduleFocusCheck()
             }
@@ -249,6 +253,9 @@ final class WindowManager {
 
     // MARK: - Applications
 
+    /// How many more times an app that cannot be watched yet is tried, half a second apart.
+    private static let launchAttempts = 5
+
     private func addApp(_ app: NSRunningApplication, attempt: Int = 0) {
         guard let pid = Processes.pid(of: app), observers[pid] == nil, pid != ProcessInfo.processInfo.processIdentifier,
               app.activationPolicy == .regular, !app.isTerminated, onlyPID == nil || pid == onlyPID
@@ -258,7 +265,7 @@ final class WindowManager {
             MainActor.assumeIsolated { self?.handle(observer, event) }
         }) else {
             // A launching app may not answer Accessibility requests yet.
-            if attempt < 5 {
+            if attempt < Self.launchAttempts {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     MainActor.assumeIsolated { self?.addApp(app, attempt: attempt + 1) }
                 }
