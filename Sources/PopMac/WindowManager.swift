@@ -650,8 +650,10 @@ final class WindowManager {
         }
 
         for (id, fork) in autoTiler.attached where !visible.contains(id) {
-            guard let window = windows[id], !window.isMinimized, !window.isHidden,
-                  visibleKeys.contains(autoTiler.forest.toplevel(of: fork).workspace)
+            // The tree's Space is checked first. Most windows out of view are on another Space,
+            // and this check needs no call to their apps.
+            guard visibleKeys.contains(autoTiler.forest.toplevel(of: fork).workspace),
+                  let window = windows[id], !window.isHidden, !window.isMinimized
             else { continue }
 
             let count = (offscreenStrikes[id] ?? 0) + 1

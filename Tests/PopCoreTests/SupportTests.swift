@@ -69,6 +69,33 @@ struct SupportTests {
         #expect(FloatRules.windowShallFloat(appName: "Finder", bundleID: "com.apple.finder", title: "Downloads", userRules: override))
     }
 
+    /// Reading a title can mean a slow call to the window's app.
+    @Test func floatRulesReadTheTitleOnlyWhenARuleNeedsIt() {
+        var reads = 0
+        // Called outside `#expect`, which would read the title to show it in a failure.
+        func title() -> String {
+            reads += 1
+            return "Huddle with Ana"
+        }
+        func floats(_ appName: String, _ rules: [FloatRule]) -> Bool {
+            FloatRules.windowShallFloat(appName: appName, bundleID: "", title: title(), userRules: rules)
+        }
+        // No rule has a title pattern.
+        let terminal = floats("Terminal", [FloatRule(app: "Terminal")])
+        let safari = floats("Safari", [FloatRule(app: "Terminal")])
+        #expect(terminal && !safari)
+        #expect(reads == 0)
+        // The title rules are of another app.
+        let slackRules = [FloatRule(app: "Slack", title: "call"), FloatRule(app: "Slack", title: "huddle")]
+        let other = floats("Safari", slackRules)
+        #expect(!other)
+        #expect(reads == 0)
+        // Two rules need the title. It is read once.
+        let slack = floats("Slack", slackRules)
+        #expect(slack)
+        #expect(reads == 1)
+    }
+
     @Test func settingsDecodeFloatRules() throws {
         let json = #"{"floatRules": [{"app": "Calculator"}, {"title": "Picture in Picture", "disabled": false}]}"#
         let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
