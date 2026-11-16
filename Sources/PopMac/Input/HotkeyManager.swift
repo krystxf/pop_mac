@@ -1,4 +1,5 @@
 import AppKit
+import os
 import PopCore
 
 /// Catches system-wide key bindings with a keyboard event tap.
@@ -6,15 +7,32 @@ import PopCore
 /// The tap consumes a matching key press, so the focused application never
 /// sees it. It needs Accessibility access, which Pop Mac needs anyway.
 /// Unlike Carbon hot keys, a tap also sees synthetic key events and key repeats.
-final class HotkeyManager {
+///
+/// macOS holds every key press of every app until the tap answers. So the tap has
+/// its own thread, and only looks the key up: typing never waits for the main
+/// thread, which can be busy with a slow app. The actions run on the main thread.
+final class HotkeyManager: @unchecked Sendable {
+    /// A key combination and what it does.
+    struct Entry {
+        let combo: KeyCombo
+        /// True if the action runs again while the key is held down.
+        let repeats: Bool
+        let handler: @MainActor () -> Void
+    }
+
     private struct Binding: Hashable {
         let code: Int64
         let modifiers: UInt64
     }
 
-    private var handlers: [Binding: (handler: () -> Void, repeats: Bool)] = [:]
-    /// Key codes whose key-down was consumed, so their key-up is consumed too.
-    private var swallowed = Set<Int64>()
+    private struct State {
+        var handlers: [Binding: Entry] = [:]
+        /// Key codes whose key-down was consumed, so their key-up is consumed too.
+        var swallowed = Set<Int64>()
+    }
+
+    /// The main thread writes the bindings, and the tap's thread reads them.
+    private let state = OSAllocatedUnfairLock(uncheckedState: State())
     private var tap: CFMachPort?
 
     private static let modifierMask = CGEventFlags.modifiers.rawValue
@@ -24,7 +42,10 @@ final class HotkeyManager {
     }
 
     deinit {
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
+        guard let tap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        // Its thread's run loop has no other source, so the thread ends.
+        CFMachPortInvalidate(tap)
     }
 
     private func installTap() {
@@ -42,53 +63,79 @@ final class HotkeyManager {
             return
         }
         self.tap = tap
-        CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+
+        let thread = Thread {
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            CFRunLoopRun()
+        }
+        thread.name = "dev.krystof.popmac.hotkeys"
+        thread.qualityOfService = .userInteractive
+        thread.start()
     }
 
+    /// Runs on the tap's thread.
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
-            // macOS turns a slow tap off. Turn it back on.
+            // macOS turned the tap off. Turn it back on. The key-ups that passed meanwhile
+            // went to their apps, so nothing waits to be consumed.
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            state.withLockUnchecked { $0.swallowed.removeAll() }
             return Unmanaged.passUnretained(event)
         case .keyDown:
             let code = event.getIntegerValueField(.keyboardEventKeycode)
             let binding = Binding(code: code, modifiers: event.flags.rawValue & Self.modifierMask)
-            guard let entry = handlers[binding] else { return Unmanaged.passUnretained(event) }
-            swallowed.insert(code)
+            let entry = state.withLockUnchecked { state -> Entry? in
+                guard let entry = state.handlers[binding] else {
+                    // The app gets this key-down, so it gets the key-up too.
+                    state.swallowed.remove(code)
+                    return nil
+                }
+                state.swallowed.insert(code)
+                return entry
+            }
+            guard let entry else { return Unmanaged.passUnretained(event) }
             let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
             if !isRepeat || entry.repeats {
-                // Run the action after the tap returns, so the tap stays fast.
-                DispatchQueue.main.async(execute: entry.handler)
+                // The action is looked up again when it runs. An earlier key that waits for the
+                // main thread can change the bindings, as the key that enters tile mode does.
+                DispatchQueue.main.async { MainActor.assumeIsolated { self.run(binding, isRepeat: isRepeat) } }
             }
             return nil
         case .keyUp:
             let code = event.getIntegerValueField(.keyboardEventKeycode)
-            return swallowed.remove(code) != nil ? nil : Unmanaged.passUnretained(event)
+            let swallowed = state.withLockUnchecked { $0.swallowed.remove(code) != nil }
+            return swallowed ? nil : Unmanaged.passUnretained(event)
         default:
             return Unmanaged.passUnretained(event)
         }
     }
 
-    /// Registers a key combination. Returns false if the key name is unknown.
-    @discardableResult
-    func register(_ combo: KeyCombo, repeats: Bool = false, handler: @escaping () -> Void) -> Bool {
-        guard let code = KeyCodes.code(for: combo.key) else {
-            Log.warn("unknown key name: \(combo.key)")
-            return false
-        }
-
-        let binding = Binding(code: Int64(code), modifiers: CGEventFlags(modifiers: combo.modifiers).rawValue)
-        if handlers[binding] != nil {
-            Log.warn("\(combo) is bound twice; the last binding wins")
-        }
-        handlers[binding] = (handler, repeats)
-        return true
+    /// Runs what the key does now, which is nothing if its binding is gone.
+    @MainActor
+    private func run(_ binding: Binding, isRepeat: Bool) {
+        guard let entry = state.withLockUnchecked({ $0.handlers[binding] }), !isRepeat || entry.repeats else { return }
+        entry.handler()
     }
 
-    func unregisterAll() {
-        handlers.removeAll()
+    /// Replaces every binding at once, so no key press sees half of the new bindings.
+    ///
+    /// A key name that the keyboard layout lacks is skipped.
+    func setBindings(_ entries: [Entry]) {
+        var handlers: [Binding: Entry] = [:]
+        for entry in entries {
+            guard let code = KeyCodes.code(for: entry.combo.key) else {
+                Log.warn("unknown key name: \(entry.combo.key)")
+                continue
+            }
+            let binding = Binding(code: Int64(code), modifiers: CGEventFlags(modifiers: entry.combo.modifiers).rawValue)
+            if handlers[binding] != nil {
+                Log.warn("\(entry.combo) is bound twice; the last binding wins")
+            }
+            handlers[binding] = entry
+        }
+        state.withLockUnchecked { $0.handlers = handlers }
     }
 }
 

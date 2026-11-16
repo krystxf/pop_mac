@@ -16,24 +16,26 @@ public struct FloatRule: Codable, Equatable {
         self.disabled = disabled
     }
 
-    func matches(appName: String, bundleID: String, title windowTitle: String) -> Bool {
+    /// `windowTitle` is called only if the rule has a title pattern and its app pattern matches.
+    func matches(appName: String, bundleID: String, title windowTitle: () -> String) -> Bool {
         if let app, !app.isEmpty {
             guard Self.test(app, appName) || Self.test(app, bundleID) else { return false }
         }
         if let title, !title.isEmpty {
-            guard Self.test(title, windowTitle) else { return false }
+            guard Self.test(title, windowTitle()) else { return false }
         }
         return app != nil || title != nil
     }
 
-    private static var cache: [String: NSRegularExpression] = [:]
+    /// The compiled patterns. NSCache is safe to use from the tests, which run in parallel.
+    private static let cache = NSCache<NSString, NSRegularExpression>()
 
     private static func test(_ pattern: String, _ value: String) -> Bool {
         let regex: NSRegularExpression
-        if let cached = cache[pattern] {
+        if let cached = cache.object(forKey: pattern as NSString) {
             regex = cached
         } else if let compiled = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-            cache[pattern] = compiled
+            cache.setObject(compiled, forKey: pattern as NSString)
             regex = compiled
         } else {
             return value.caseInsensitiveCompare(pattern) == .orderedSame
@@ -58,8 +60,16 @@ public enum FloatRules {
     /// Returns true if the window should float.
     ///
     /// User rules are checked first, so they can override the defaults.
-    public static func windowShallFloat(appName: String, bundleID: String, title: String, userRules: [FloatRule]) -> Bool {
-        for rule in userRules + defaults where rule.matches(appName: appName, bundleID: bundleID, title: title) {
+    /// The title is read at most once, and only if a rule needs it: reading it can mean a slow call to the window's app.
+    public static func windowShallFloat(appName: String, bundleID: String, title: @autoclosure () -> String, userRules: [FloatRule]) -> Bool {
+        var known: String?
+        func cachedTitle() -> String {
+            if let known { return known }
+            let value = title()
+            known = value
+            return value
+        }
+        for rule in userRules + defaults where rule.matches(appName: appName, bundleID: bundleID, title: cachedTitle) {
             return rule.disabled != true
         }
         return false

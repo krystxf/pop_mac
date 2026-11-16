@@ -16,19 +16,20 @@ extension WindowManager {
     ///
     /// Tile mode replaces the global bindings, except tile-enter.
     func registerHotkeys() {
-        hotkeys.unregisterAll()
         let inTileMode = tileMode != nil
+        var bindings: [HotkeyManager.Entry] = []
         for action in Action.allCases {
             let active = inTileMode
                 ? (action.isTileMode || action == .tileEnter)
                 : !action.isTileMode
             guard active else { continue }
             for combo in settings.combos(for: action) {
-                hotkeys.register(combo, repeats: Self.repeats(action)) { [weak self] in
-                    MainActor.assumeIsolated { self?.perform(action) }
-                }
+                bindings.append(HotkeyManager.Entry(combo: combo, repeats: Self.repeats(action)) { [weak self] in
+                    self?.perform(action)
+                })
             }
         }
+        hotkeys.setBindings(bindings)
     }
 
     /// Actions that run again while their key is held down.

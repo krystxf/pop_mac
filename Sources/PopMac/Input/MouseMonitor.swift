@@ -79,7 +79,7 @@ final class MouseMonitor {
         lastCheck = Date()
 
         // The window server's frames: the app of a dragged window is busy and slow to answer.
-        let frames = Dictionary(Displays.onScreenFrames().map { ($0.id, $0.frame) }, uniquingKeysWith: { first, _ in first })
+        let frames = Dictionary(Displays.onScreenWindows().map { ($0.id, $0.frame) }, uniquingKeysWith: { first, _ in first })
         for (id, rect) in grab.candidates {
             guard let frame = frames[id] else { continue }
             let moved = abs(frame.x - rect.x) > 1 || abs(frame.y - rect.y) > 1
@@ -167,28 +167,16 @@ final class MouseMonitor {
 
     /// Managed windows whose frame, widened by the grab margin, holds the cursor.
     private func windowsNearCursor() -> [WindowID: Rect] {
-        guard let manager,
-              let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
-        else { return [:] }
-
+        guard let manager else { return [:] }
         let cursor = Displays.cursor
-        let ownPID = ProcessInfo.processInfo.processIdentifier
         var result: [WindowID: Rect] = [:]
 
-        for entry in info {
-            guard (entry[kCGWindowLayer as String] as? Int) == 0,
-                  (entry[kCGWindowOwnerPID as String] as? Int32) != ownPID,
-                  let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
-                  manager.windows[id] != nil,
-                  let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: boundsDict)
-            else { continue }
-            let rect = Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height))
-            guard rect.inset(by: -Self.grabMargin).contains(cursor) else { continue }
+        for window in Displays.onScreenWindows() {
+            guard let managed = manager.windows[window.id], window.frame.inset(by: -Self.grabMargin).contains(cursor) else { continue }
             // In Mission Control the window list shows thumbnails, not the real frames.
             // Dragging a thumbnail is not a window drag.
-            guard let frame = manager.windows[id]?.frame, frame.approximatelyEquals(rect, tolerance: 4) else { continue }
-            result[id] = rect
+            guard let frame = managed.frame, frame.approximatelyEquals(window.frame, tolerance: 4) else { continue }
+            result[window.id] = window.frame
         }
         return result
     }

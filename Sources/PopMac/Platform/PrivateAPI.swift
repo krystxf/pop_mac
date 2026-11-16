@@ -34,37 +34,32 @@ enum Spaces {
         return spaces.first?.uint64Value
     }
 
-    /// The current Space of each display, keyed by the display UUID.
+    /// What the window server says about each display's Spaces, keyed by the display UUID.
     ///
     /// When displays share Spaces, the key is "Main".
-    static func currentSpaces() -> [String: UInt64] {
+    private static func managedDisplays() -> [String: [String: Any]] {
         guard let displays = CGSCopyManagedDisplaySpaces(connection)?.takeRetainedValue() as? [[String: Any]] else {
             return [:]
         }
-        var result: [String: UInt64] = [:]
+        var result: [String: [String: Any]] = [:]
         for display in displays {
-            guard let identifier = display["Display Identifier"] as? String,
-                  let current = display["Current Space"] as? [String: Any],
-                  let id = (current["id64"] as? NSNumber)?.uint64Value ?? (current["ManagedSpaceID"] as? NSNumber)?.uint64Value
-            else { continue }
-            result[identifier] = id
+            if let identifier = display["Display Identifier"] as? String { result[identifier] = display }
         }
         return result
     }
 
+    private static func id(of space: [String: Any]) -> UInt64? {
+        ((space["id64"] ?? space["ManagedSpaceID"]) as? NSNumber)?.uint64Value
+    }
+
+    /// The current Space of each display, keyed by the display UUID.
+    static func currentSpaces() -> [String: UInt64] {
+        managedDisplays().compactMapValues { ($0["Current Space"] as? [String: Any]).flatMap(id(of:)) }
+    }
+
     /// The ordered Space ids of each display, keyed by the display UUID.
     static func allSpaces() -> [String: [UInt64]] {
-        guard let displays = CGSCopyManagedDisplaySpaces(connection)?.takeRetainedValue() as? [[String: Any]] else {
-            return [:]
-        }
-        var result: [String: [UInt64]] = [:]
-        for display in displays {
-            guard let identifier = display["Display Identifier"] as? String,
-                  let spaces = display["Spaces"] as? [[String: Any]]
-            else { continue }
-            result[identifier] = spaces.compactMap { ($0["id64"] as? NSNumber)?.uint64Value }
-        }
-        return result
+        managedDisplays().compactMapValues { ($0["Spaces"] as? [[String: Any]])?.compactMap(id(of:)) }
     }
 
     static var activeSpace: UInt64 { CGSGetActiveSpace(connection) }

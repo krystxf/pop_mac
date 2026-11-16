@@ -82,31 +82,38 @@ enum Displays {
     /// A window's frame, or nil if the window is not on screen, for example while it is minimized.
     static func onScreenFrame(of id: CGWindowID) -> Rect? {
         guard let entry = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]])?.first,
-              entry[kCGWindowIsOnscreen as String] as? Bool == true,
-              let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
-              let bounds = CGRect(dictionaryRepresentation: boundsDict)
+              entry[kCGWindowIsOnscreen as String] as? Bool == true
         else { return nil }
-        return Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height))
+        return frame(in: entry)
     }
 
-    /// The frames of every window that is visible on screen, from front to back.
+    /// A window as the window server lists it.
+    struct OnScreenWindow {
+        let id: CGWindowID
+        let frame: Rect
+    }
+
+    /// Every normal window that is visible on screen, from front to back.
     ///
     /// The window server answers at once, while an app may be busy for a while.
-    static func onScreenFrames() -> [(id: CGWindowID, frame: Rect)] {
+    static func onScreenWindows() -> [OnScreenWindow] {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
         return info.compactMap { entry in
             guard (entry[kCGWindowLayer as String] as? Int) == 0,
                   let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
-                  let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: boundsDict)
+                  let frame = frame(in: entry)
             else { return nil }
-            return (id, Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height)))
+            return OnScreenWindow(id: id, frame: frame)
         }
     }
 
-    /// The ids of every window that is visible on screen, from front to back.
+    /// The ids of every normal window that is visible on screen, from front to back.
+    static func onScreenWindowIDs() -> [CGWindowID] {
+        onScreenWindows().map(\.id)
+    }
+
     /// Every window that exists, on every Space, minimized or not.
     ///
     /// Nil if the window server did not answer, which is not the same as no windows.
@@ -117,13 +124,11 @@ enum Displays {
         return Set(info.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value })
     }
 
-    static func onScreenWindowIDs() -> [CGWindowID] {
-        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return []
-        }
-        return info.compactMap { entry in
-            guard (entry[kCGWindowLayer as String] as? Int) == 0 else { return nil }
-            return (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value
-        }
+    /// The frame in an entry of the window server's list.
+    private static func frame(in entry: [String: Any]) -> Rect? {
+        guard let dictionary = entry[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: dictionary)
+        else { return nil }
+        return Rect(Double(bounds.origin.x), Double(bounds.origin.y), Double(bounds.width), Double(bounds.height))
     }
 }
