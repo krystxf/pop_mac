@@ -3,12 +3,25 @@ import ApplicationServices
 import PopCore
 
 /// A top-level window of another application, reached through Accessibility.
+///
+/// Reading an attribute is a call to the window's app, which waits for the app to answer.
+/// The answers that say whether the window can tile are kept for a moment, because Pop Mac
+/// asks for them often: for every window of a tree, many times a second during a drag.
+/// An event from the window ends the moment early. While the app is silent, the last
+/// answer stays good, so a window of an app that hangs keeps its tile.
 final class ManagedWindow {
     let id: WindowID
     let element: AXUIElement
     let pid: pid_t
     let app: NSRunningApplication
     let appElement: AXUIElement
+
+    /// How long an answer stays good without an event from the window.
+    private static let answerLifetime: TimeInterval = 0.5
+    /// The last answer for each attribute, with the time it came. Used on the main thread only.
+    private var answers: [String: (value: Any?, time: TimeInterval)] = [:]
+    /// A window's role never changes.
+    private var knownRole: String?
 
     init(id: WindowID, element: AXUIElement, app: NSRunningApplication, pid: pid_t, appElement: AXUIElement) {
         self.id = id
@@ -20,25 +33,48 @@ final class ManagedWindow {
 
     var appName: String { app.localizedName ?? "" }
     var bundleID: String { app.bundleIdentifier ?? "" }
-    var title: String { AX.get(element, kAXTitleAttribute) ?? "" }
-    var subrole: String? { AX.get(element, kAXSubroleAttribute) }
-    var role: String? { AX.get(element, kAXRoleAttribute) }
+    var title: String { answer(kAXTitleAttribute) { AX.ask(element, kAXTitleAttribute) } ?? "" }
+    var subrole: String? { answer(kAXSubroleAttribute) { AX.ask(element, kAXSubroleAttribute) } }
     var frame: Rect? { AX.frame(element) }
-    var isMinimized: Bool { AX.get(element, kAXMinimizedAttribute) ?? false }
-    var isFullscreen: Bool { AX.get(element, "AXFullScreen") ?? false }
+    var isMinimized: Bool { answer(kAXMinimizedAttribute) { AX.ask(element, kAXMinimizedAttribute) } ?? false }
+    var isFullscreen: Bool { answer("AXFullScreen") { AX.ask(element, "AXFullScreen") } ?? false }
     var isHidden: Bool { app.isHidden }
-    var isResizable: Bool { AX.isSettable(element, kAXSizeAttribute) }
+    var isResizable: Bool { answer("resizable") { AX.askSettable(element, kAXSizeAttribute) } ?? false }
+
+    var role: String? {
+        if let knownRole { return knownRole }
+        knownRole = AX.get(element, kAXRoleAttribute)
+        return knownRole
+    }
 
     /// True for normal document windows, as opposed to panels, sheets and dialogs.
     var isStandard: Bool {
         role == kAXWindowRole && subrole == kAXStandardWindowSubrole
     }
 
-    /// True while the window still exists.
-    var isAlive: Bool {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value)
-        return error != .invalidUIElement && !app.isTerminated
+    /// Returns the answer for `key`: the kept one while it is good, or else a new one from `ask`.
+    private func answer<T>(_ key: String, ask: () -> AX.Answer<T>) -> T? {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let known = answers[key], now - known.time < Self.answerLifetime { return known.value as? T }
+        switch ask() {
+        case let .value(value):
+            answers[key] = (value, now)
+            return value
+        case .none:
+            answers[key] = (nil, now)
+            return nil
+        case .silent:
+            return answers[key]?.value as? T
+        }
+    }
+
+    /// Makes the next read of each attribute ask the app again, after an event that can change the answers.
+    ///
+    /// The old answers stay, for the case that the app is silent by then.
+    func expireAnswers() {
+        for key in answers.keys {
+            answers[key]?.time = -.infinity
+        }
     }
 
     /// Moves and resizes the window at once.
@@ -71,6 +107,7 @@ final class ManagedWindow {
 
     func minimize() {
         AX.set(element, kAXMinimizedAttribute, kCFBooleanTrue)
+        expireAnswers()
     }
 
     func close() {

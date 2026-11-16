@@ -13,6 +13,18 @@ enum AXEvent {
     case titleChanged(AXUIElement)
     case appHidden
     case appShown
+
+    /// The window that the event is about, unless the event is about the whole app.
+    var window: AXUIElement? {
+        switch self {
+        case let .windowCreated(element), let .windowDestroyed(element), let .focusedWindowChanged(element),
+             let .windowMinimized(element), let .windowDeminimized(element), let .windowMoved(element),
+             let .windowResized(element), let .titleChanged(element):
+            element
+        case .appHidden, .appShown:
+            nil
+        }
+    }
 }
 
 /// Watches one application for window events.
@@ -82,13 +94,6 @@ final class AppObserver {
         }
     }
 
-    func unwatch(_ window: AXUIElement) {
-        guard let observer else { return }
-        for name in Self.windowNotifications {
-            AXObserverRemoveNotification(observer, window, name as CFString)
-        }
-    }
-
     /// The application's windows on the current Spaces.
     func windows() -> [AXUIElement] {
         AX.elements(element, kAXWindowsAttribute)
@@ -99,6 +104,8 @@ final class AppObserver {
     }
 
     private func dispatch(_ element: AXUIElement, _ notification: String) {
+        // An event shows that the app is alive, even if its last call got no answer.
+        AX.heard(from: pid)
         let event: AXEvent
         switch notification {
         case kAXWindowCreatedNotification: event = .windowCreated(element)

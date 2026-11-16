@@ -73,6 +73,8 @@ final class WindowManager {
     private(set) var spaceSwitches = SpaceSwitchClock()
     private var spaceScan: DispatchWorkItem?
     var isSwitchingSpaces: Bool { spaceSwitches.isSwitching(at: ProcessInfo.processInfo.systemUptime) }
+    /// True while the left mouse button is down.
+    private var isMouseDown: Bool { NSEvent.pressedMouseButtons & 1 != 0 }
     private var departureTimer: Timer?
     /// How many checks in a row found each tiled window off screen.
     private var offscreenStrikes: [WindowID: Int] = [:]
@@ -88,6 +90,7 @@ final class WindowManager {
     // MARK: - Startup
 
     func start() {
+        AX.setDefaultTimeout()
         applyStyles()
         // An app raises its window when the user clicks it. The outline and the tab bar follow,
         // the tab bar last, so the outline's glass never covers it.
@@ -319,6 +322,16 @@ final class WindowManager {
 
     private func handle(_ observer: AppObserver, _ event: AXEvent) {
         let pid = observer.pid
+        // The tracked window that the event is about. A window that was just created is not tracked yet.
+        var known: WindowID?
+        if case .windowCreated = event {} else if let element = event.window {
+            known = lookup(element, pid: pid)
+        }
+        // The window's kept answers are stale after any event but a move, which changes none of them.
+        // A dragged window sends moves all the time, and its app is slow to answer then.
+        if case .windowMoved = event {} else if let known {
+            windows[known]?.expireAnswers()
+        }
 
         switch event {
         case let .windowCreated(element):
@@ -327,11 +340,11 @@ final class WindowManager {
                 MainActor.assumeIsolated { self?.onWindowCreated(element, observer) }
             }
 
-        case let .windowDestroyed(element):
-            if let id = lookup(element, pid: pid) { onDestroy(id) }
+        case .windowDestroyed:
+            if let known { onDestroy(known) }
 
         case let .focusedWindowChanged(element):
-            var id = lookup(element, pid: pid)
+            var id = known
             if id == nil, let window = register(element, observer) {
                 // A window that was not standard when it was created.
                 id = window.id
@@ -343,44 +356,44 @@ final class WindowManager {
                 scheduleFocusCheck()
             }
 
-        case let .windowMinimized(element):
-            if let id = lookup(element, pid: pid) { onMinimize(id, minimized: true) }
+        case .windowMinimized:
+            if let known { onMinimize(known, minimized: true) }
 
-        case let .windowDeminimized(element):
-            if let id = lookup(element, pid: pid) { onMinimize(id, minimized: false) }
+        case .windowDeminimized:
+            if let known { onMinimize(known, minimized: false) }
 
-        case let .windowMoved(element), let .windowResized(element):
-            let moved = lookup(element, pid: pid)
+        case .windowMoved, .windowResized:
             // Pop Mac's own animation moves the window. The outline glides along by itself.
-            if let moved, animator.target(of: moved) != nil { break }
-            if moved != nil, moved == prevFocused[1] {
+            if let known, animator.target(of: known) != nil { break }
+            if known != nil, known == prevFocused[1] {
                 // The outline would trail a window that the mouse moves. It returns at mouse-up.
-                if NSEvent.pressedMouseButtons & 1 != 0 { hint.hide() } else { scheduleHint() }
+                if isMouseDown { hint.hide() } else { scheduleHint() }
             }
-            if let id = moved,
+            if let known,
                // Mouse drags are handled at mouse-up. Anything else snaps back to its tile,
                // once a Space switch has settled.
-               autoTiler?.isAttached(id) == true, NSEvent.pressedMouseButtons & 1 == 0,
-               Date().timeIntervalSince(lastSet[id] ?? .distantPast) > 0.5
+               autoTiler?.isAttached(known) == true, !isMouseDown,
+               Date().timeIntervalSince(lastSet[known] ?? .distantPast) > 0.5
             {
-                scheduleSnapBack(id)
+                scheduleSnapBack(known)
             }
 
-        case let .titleChanged(element):
+        case .titleChanged:
             // Only tab bars show titles. Most title changes are of other windows.
-            let stacked = autoTiler?.forest.allStacks().flatMap(\.entities) ?? []
-            if stacked.contains(where: { windows[$0]?.pid == pid }),
-               let id = lookup(element, pid: pid), stacked.contains(id)
-            {
+            if let known, autoTiler?.findStack(known) != nil {
                 scheduleStacksRefresh()
             }
 
         case .appHidden:
             for window in windows.values where window.pid == pid {
+                window.expireAnswers()
                 onMinimize(window.id, minimized: true)
             }
 
         case .appShown:
+            for window in windows.values where window.pid == pid {
+                window.expireAnswers()
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
@@ -464,7 +477,7 @@ final class WindowManager {
         }
         let ids = snapBackPending
         snapBackPending.removeAll()
-        guard let autoTiler, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+        guard let autoTiler, !isMouseDown else { return }
 
         var tiled = Set<ObjectIdentifier>()
         for id in ids {
@@ -600,7 +613,7 @@ final class WindowManager {
         spaceSwitches.switched(at: ProcessInfo.processInfo.systemUptime)
         exitTileMode()
         // A dragged stack's windows stay on their Space. They go back to their tiles there.
-        cancelStackDrag(buttonDown: NSEvent.pressedMouseButtons & 1 != 0)
+        cancelStackDrag(buttonDown: isMouseDown)
         // Each Space keeps its own outline, which slides in and out with the Space.
         // A failed query of the Spaces keeps them all.
         let spaces = Set(Spaces.allSpaces().values.joined())
@@ -635,7 +648,7 @@ final class WindowManager {
     /// Both must hold on two checks in a row, because windows also leave and
     /// enter the screen for a moment while a Space switch animates.
     private func checkDepartedWindows() {
-        guard !isSwitchingSpaces, let autoTiler, NSEvent.pressedMouseButtons & 1 == 0, !SpaceMover.isMoving else { return }
+        guard !isSwitchingSpaces, let autoTiler, !isMouseDown, !SpaceMover.isMoving else { return }
 
         let visible = Set(Displays.onScreenWindowIDs())
         let visibleKeys = Set(displays.map { currentKey(of: $0) })
@@ -768,8 +781,9 @@ final class WindowManager {
     // MARK: - Tiling state
 
     func isTilable(_ id: WindowID) -> Bool {
-        guard let window = windows[id], !floating.contains(id), window.isStandard, !window.isMinimized, !window.isFullscreen,
-              !window.isHidden else { return false }
+        // The checks that need no answer from the window's app come first.
+        guard let window = windows[id], !floating.contains(id), !window.isHidden,
+              window.isStandard, !window.isMinimized, !window.isFullscreen else { return false }
         if matchesFloatRule(window) {
             return forceTile.contains(id)
         }
@@ -816,7 +830,7 @@ final class WindowManager {
     func autoTileOff() {
         guard let tiler = autoTiler else { return }
         exitTileMode()
-        cancelStackDrag(buttonDown: NSEvent.pressedMouseButtons & 1 != 0)
+        cancelStackDrag(buttonDown: isMouseDown)
         // Turning tiling on again rebuilds this layout, with its stacks.
         saveLayout()
         tiler.destroy()
@@ -1207,7 +1221,7 @@ final class WindowManager {
         stackDragWatch = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, var drag = self.stackDrag else { return }
-                let lost = drag.session.mouseUpWasLost(buttonDown: NSEvent.pressedMouseButtons & 1 != 0)
+                let lost = drag.session.mouseUpWasLost(buttonDown: self.isMouseDown)
                 self.stackDrag = drag
                 if lost {
                     Log.debug("the drop of stack \(drag.stack.id) never came; putting it back")
