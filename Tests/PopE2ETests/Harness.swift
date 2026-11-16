@@ -108,21 +108,33 @@ final class TestApp {
 
     @discardableResult
     private func send(_ command: String) throws -> String {
+        print("Test app \(pid): \(command)")
         input.fileHandleForWriting.write(Data((command + "\n").utf8))
-        let answer = readLine()
+        let answer = try readLine()
         if answer.hasPrefix("error") {
             throw TestAppError(message: "\(command): \(answer)")
         }
         return answer
     }
 
-    private func readLine() -> String {
+    private func readLine() throws -> String {
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
         while true {
             if let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
                 let line = String(decoding: buffer[..<newline], as: UTF8.self)
                 buffer.removeSubrange(...newline)
                 return line
             }
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else {
+                captureSample(process, reason: "command timeout")
+                throw TestAppError(message: "No answer from test app within 10 seconds")
+            }
+            var descriptor = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&descriptor, 1, Int32(remaining * 1000))
+            if ready < 0, errno == EINTR { continue }
+            guard ready >= 0 else { throw TestAppError(message: "Cannot poll test app output: errno \(errno)") }
+            if ready == 0 { continue }
             let data = output.fileHandleForReading.availableData
             if data.isEmpty { return "error: the test app quit" }
             buffer.append(data)
@@ -132,8 +144,37 @@ final class TestApp {
     /// Closes stdin, which makes the app quit.
     func quit() {
         try? input.fileHandleForWriting.close()
-        process.waitUntilExit()
+        finish(process)
     }
+}
+
+/// Keep a stuck child from preventing the test timeout and cleanup from completing.
+private func finish(_ process: Process) {
+    let deadline = ProcessInfo.processInfo.systemUptime + 3
+    while process.isRunning, ProcessInfo.processInfo.systemUptime < deadline {
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    if process.isRunning {
+        captureSample(process, reason: "shutdown timeout")
+        Issue.record("Child process \(process.processIdentifier) did not exit within 3 seconds")
+        kill(process.processIdentifier, SIGKILL)
+    }
+}
+
+private func captureSample(_ process: Process, reason: String) {
+    guard process.isRunning else { return }
+    let path = FileManager.default.temporaryDirectory.appendingPathComponent("pop-mac-e2e-sample-\(process.processIdentifier).txt").path
+    let sample = Process()
+    sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+    sample.arguments = [String(process.processIdentifier), "1", "-file", path]
+    try? sample.run()
+    let deadline = ProcessInfo.processInfo.systemUptime + 3
+    while sample.isRunning, ProcessInfo.processInfo.systemUptime < deadline {
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    if sample.isRunning { sample.terminate() }
+    print("\(reason): sampled pid \(process.processIdentifier) to \(path)")
+    if let text = try? String(contentsOfFile: path, encoding: .utf8) { print(text) }
 }
 
 struct TestAppError: Error, CustomStringConvertible {
@@ -183,14 +224,15 @@ final class Session {
     func stopPopMac() {
         guard let popMac else { return }
         popMac.terminate()
-        popMac.waitUntilExit()
+        finish(popMac)
         self.popMac = nil
     }
 
     func close() {
         stopPopMac()
         app.quit()
-        try? FileManager.default.removeItem(at: configDir)
+        // CI uploads these logs even when a test fails.
+        print(logTail())
     }
 
     /// Waits until every window has its expected frame, give or take a point.
