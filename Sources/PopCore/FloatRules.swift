@@ -63,13 +63,13 @@ public enum FloatRules {
     /// The title is read at most once, and only if a rule needs it: reading it can mean a slow call to the window's app.
     public static func windowShallFloat(appName: String, bundleID: String, title: @autoclosure () -> String, userRules: [FloatRule]) -> Bool {
         var known: String?
-        let title = { () -> String in
+        func cachedTitle() -> String {
             if let known { return known }
             let value = title()
             known = value
             return value
         }
-        for rule in userRules + defaults where rule.matches(appName: appName, bundleID: bundleID, title: title) {
+        for rule in userRules + defaults where rule.matches(appName: appName, bundleID: bundleID, title: cachedTitle) {
             return rule.disabled != true
         }
         return false

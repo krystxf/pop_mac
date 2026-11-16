@@ -91,6 +91,7 @@ final class WindowManager {
 
     func start() {
         AX.setDefaultTimeout()
+        AX.onRecovery = { [weak self] pid in self?.appRecovered(pid) }
         applyStyles()
         // An app raises its window when the user clicks it. The outline and the tab bar follow,
         // the tab bar last, so the outline's glass never covers it.
@@ -281,6 +282,19 @@ final class WindowManager {
         }
     }
 
+    /// Moves the windows of an app into their tiles, after the app did not answer for a while.
+    ///
+    /// The moves that Pop Mac made meanwhile were skipped. Windows that are in place do not move.
+    private func appRecovered(_ pid: pid_t) {
+        guard let autoTiler else { return }
+        var tiled = Set<ObjectIdentifier>()
+        for (id, fork) in autoTiler.attached where windows[id]?.pid == pid {
+            let top = autoTiler.forest.toplevel(of: fork)
+            if tiled.insert(ObjectIdentifier(top)).inserted { autoTiler.tile(top, area: top.area) }
+        }
+        scheduleStacksRefresh()
+    }
+
     private func removeApp(_ pid: pid_t) {
         for window in windows.values where window.pid == pid {
             onDestroy(window.id)
@@ -373,10 +387,16 @@ final class WindowManager {
             }
 
         case .windowMinimized:
-            if let known { onMinimize(known, minimized: true) }
+            if let known {
+                windows[known]?.noteMinimized(true)
+                onMinimize(known, minimized: true)
+            }
 
         case .windowDeminimized:
-            if let known { onMinimize(known, minimized: false) }
+            if let known {
+                windows[known]?.noteMinimized(false)
+                onMinimize(known, minimized: false)
+            }
 
         case .windowMoved, .windowResized:
             // Pop Mac's own animation moves the window. The outline glides along by itself.

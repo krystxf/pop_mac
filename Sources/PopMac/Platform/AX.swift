@@ -5,7 +5,8 @@ import PopCore
 
 /// Small helpers around the Accessibility API.
 ///
-/// Every call that reads from an app goes through `call`, which skips apps that do not answer.
+/// Every call to an app goes through `call`, which skips apps that do not answer.
+/// When such an app answers again, `onRecovery` runs, so the skipped work can be done.
 enum AX {
     /// How long a call waits for an app.
     static let timeout: Float = 1
@@ -21,6 +22,9 @@ enum AX {
 
     /// The apps that do not answer. The animator's queues read from apps too, hence the lock.
     private static let stalls = OSAllocatedUnfairLock(initialState: AppStalls())
+
+    /// Runs on the main thread when an app that did not answer does so again.
+    @MainActor static var onRecovery: (@MainActor (pid_t) -> Void)?
 
     /// Makes every call wait at most `timeout`, also on elements that Pop Mac did not set up.
     ///
@@ -38,7 +42,7 @@ enum AX {
         guard AXUIElementGetPid(element, &elementPID) == .success else { return body() }
         let pid = elementPID
         let start = ProcessInfo.processInfo.systemUptime
-        let health = stalls.withLock { $0.health(of: pid, at: start) }
+        let health = stalls.withLock { $0.beginCall(to: pid, at: start) }
         if health == .stalled { return .cannotComplete }
 
         let error = body()
@@ -55,9 +59,9 @@ enum AX {
 
     /// Records that an app answered or sent an event, so calls to it run again.
     static func heard(from pid: pid_t) {
-        if stalls.withLock({ $0.answered(pid) }) {
-            Log.info("app \(pid) answers again")
-        }
+        guard stalls.withLock({ $0.answered(pid) }) else { return }
+        Log.info("app \(pid) answers again")
+        DispatchQueue.main.async { MainActor.assumeIsolated { onRecovery?(pid) } }
     }
 
     /// Reads an attribute, and tells an app that is silent from a missing value.
@@ -104,7 +108,12 @@ enum AX {
 
     @discardableResult
     static func set(_ element: AXUIElement, _ attribute: String, _ value: CFTypeRef) -> Bool {
-        AXUIElementSetAttributeValue(element, attribute as CFString, value) == .success
+        call(element) { AXUIElementSetAttributeValue(element, attribute as CFString, value) } == .success
+    }
+
+    /// Does what the element offers, such as a raise or a press.
+    static func perform(_ element: AXUIElement, _ action: String) {
+        _ = call(element) { AXUIElementPerformAction(element, action as CFString) }
     }
 
     static func windowID(_ element: AXUIElement) -> CGWindowID? {

@@ -4,7 +4,8 @@ import Foundation
 ///
 /// A call to an app that hangs returns only after its timeout. Pop Mac makes many
 /// calls, so one such app would hold it up for seconds. After a call without an
-/// answer, the calls to that app are skipped for a pause. Then one call tries again.
+/// answer, the calls to that app are skipped for a pause. Then one call tries again,
+/// and the other calls stay skipped until that one call is over.
 /// Each further call without an answer doubles the pause, up to `longestPause`.
 /// Times are monotonic seconds, such as `ProcessInfo.systemUptime`.
 public struct AppStalls: Sendable {
@@ -23,13 +24,23 @@ public struct AppStalls: Sendable {
         case healthy
         /// The app did not answer, and its pause runs. Calls are skipped.
         case stalled
-        /// The pause is over. The next call shows whether the app answers again.
+        /// The pause is over, and this call shows whether the app answers again.
         case retrying
     }
 
-    public func health(of app: App, at now: TimeInterval) -> Health {
+    /// Tells whether a call to the app runs now. Report its result with `timedOut` or `answered`.
+    ///
+    /// After a pause, only the first caller gets `.retrying`. The others, also on other
+    /// threads, see the app as stalled until that call is over, so they do not wait for it too.
+    public mutating func beginCall(to app: App, at now: TimeInterval) -> Health {
         guard let entry = stalled[app] else { return .healthy }
-        return now < entry.until ? .stalled : .retrying
+        if now < entry.until { return .stalled }
+        stalled[app]?.until = .infinity
+        return .retrying
+    }
+
+    public func isStalled(_ app: App, at now: TimeInterval) -> Bool {
+        stalled[app].map { now < $0.until } ?? false
     }
 
     /// Records a call that got no answer in time. Returns the pause that starts at `now`.

@@ -98,7 +98,9 @@ final class HotkeyManager: @unchecked Sendable {
             guard let entry else { return Unmanaged.passUnretained(event) }
             let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
             if !isRepeat || entry.repeats {
-                DispatchQueue.main.async { MainActor.assumeIsolated(entry.handler) }
+                // The action is looked up again when it runs. An earlier key that waits for the
+                // main thread can change the bindings, as the key that enters tile mode does.
+                DispatchQueue.main.async { MainActor.assumeIsolated { self.run(binding, isRepeat: isRepeat) } }
             }
             return nil
         case .keyUp:
@@ -108,6 +110,13 @@ final class HotkeyManager: @unchecked Sendable {
         default:
             return Unmanaged.passUnretained(event)
         }
+    }
+
+    /// Runs what the key does now, which is nothing if its binding is gone.
+    @MainActor
+    private func run(_ binding: Binding, isRepeat: Bool) {
+        guard let entry = state.withLockUnchecked({ $0.handlers[binding] }), !isRepeat || entry.repeats else { return }
+        entry.handler()
     }
 
     /// Replaces every binding at once, so no key press sees half of the new bindings.

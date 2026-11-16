@@ -68,6 +68,11 @@ final class ManagedWindow {
         }
     }
 
+    /// Records what a minimize or restore event of the window said, so no call to the app is needed for it.
+    func noteMinimized(_ minimized: Bool) {
+        answers[kAXMinimizedAttribute] = (minimized, ProcessInfo.processInfo.systemUptime)
+    }
+
     /// Makes the next read of each attribute ask the app again, after an event that can change the answers.
     ///
     /// The old answers stay, for the case that the app is silent by then.
@@ -93,14 +98,14 @@ final class ManagedWindow {
     /// Raises the window and gives it keyboard focus.
     func focus() {
         // Raise first, so the application keeps this window as its key window.
-        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        AX.perform(element, kAXRaiseAction)
         AX.set(element, kAXMainAttribute, kCFBooleanTrue)
         AX.set(appElement, kAXFrontmostAttribute, kCFBooleanTrue)
         app.activate(options: [])
         // Some apps (Finder) focus another element when they activate. Raise again after that.
         let element = element
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+            AX.perform(element, kAXRaiseAction)
             AX.set(element, kAXMainAttribute, kCFBooleanTrue)
         }
     }
@@ -112,7 +117,7 @@ final class ManagedWindow {
 
     func close() {
         if let button = AX.element(element, kAXCloseButtonAttribute) {
-            AXUIElementPerformAction(button, kAXPressAction as CFString)
+            AX.perform(button, kAXPressAction)
         }
     }
 
